@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy import text
 from typing import List
 
 from ..auth.auth import auth_handler
+from ..resources.database import get_aghu_db_session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/api", tags=["Admin"])
 
@@ -25,3 +28,27 @@ async def get_admin_data(current_user: dict = Depends(verify_admin_group)):
         message="This is highly confidential admin data!",
         user_groups=current_user.get("groups", [])
     )
+
+@router.get("/aghu/tabelas", response_model=List[str])
+async def listar_tabelas_aghu(
+    request: Request,
+    current_user: dict = Depends(verify_admin_group),
+    aghu_db: AsyncSession = Depends(get_aghu_db_session),
+):
+    """
+    Lista todas as tabelas disponíveis no schema 'agh' do banco AGHU.
+    Útil para descobrir quais tabelas estão disponíveis nesta instância.
+    """
+    if not hasattr(request.app.state, "aghu_db"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Conexão com o AGHU não está configurada (POSTGRES_DSN ausente no .env)",
+        )
+
+    result = await aghu_db.execute(
+        text(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'agh' ORDER BY table_name"
+        )
+    )
+    return [row[0] for row in result.fetchall()]

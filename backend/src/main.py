@@ -66,6 +66,8 @@ if os.path.isdir("src/static/dist"):
 # Placeholder para incluir os roteadores da API
 from .routers import paciente, auth, admin, aih, bpa, material
 from .routers import exame, frasco, macroscopia, historico, processamento
+from .routers import solicitacao
+app.include_router(solicitacao.router)
 app.include_router(paciente.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
