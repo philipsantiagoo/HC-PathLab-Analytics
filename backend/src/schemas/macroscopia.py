@@ -21,3 +21,8 @@ class MacroscopiaOut(BaseModel):
     data_realizacao: Optional[datetime] = None
     responsavel: Optional[str] = None
     numero_cassetes: int
+
+
+class MicroscopiaReadCreate(BaseModel):
+    id_lamina: str
+    observacoes: Optional[str] = None

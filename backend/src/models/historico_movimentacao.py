@@ -21,6 +21,7 @@ class HistoricoMovimentacao(Base):
     id_exame = Column(String, ForeignKey("exames.id"), nullable=True, index=True)
     id_frasco = Column(String, ForeignKey("frascos.id"), nullable=True, index=True)
     id_cassete = Column(String, ForeignKey("cassetes.id"), nullable=True, index=True)
+    id_lamina = Column(String, ForeignKey("laminas.id"), nullable=True, index=True)
     etapa = Column(String(50), nullable=False)  # Triagem | Macroscopia | ...
     status_anterior = Column(String, nullable=True)
     status_novo = Column(String, nullable=False)

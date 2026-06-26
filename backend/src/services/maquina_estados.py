@@ -58,6 +58,8 @@ class StatusBloco:
 
 class StatusLamina:
     AGUARDANDO_LEITURA = "Aguardando Leitura"
+    EM_LEITURA = "Em Leitura"
+    LIDA = "Lida"
 
 
 # --- Etapas do fluxo (campo `etapa` do histórico) ---
@@ -94,12 +96,18 @@ TRANSICOES_VALIDAS: dict[str, dict[str, set[str]]] = {
         StatusBloco.AGUARDANDO_CORTE: {StatusBloco.AGUARDANDO_MICROSCOPIA},
         StatusBloco.AGUARDANDO_MICROSCOPIA: set(),
     },
+    "Lamina": {
+        StatusLamina.AGUARDANDO_LEITURA: {StatusLamina.EM_LEITURA},
+        StatusLamina.EM_LEITURA: {StatusLamina.LIDA},
+        StatusLamina.LIDA: set(),
+    },
 }
 
 _FK_POR_TIPO = {
     "Exame": "id_exame",
     "Frasco": "id_frasco",
     "Cassete": "id_cassete",
+    "Lamina": "id_lamina",
 }
 
 
