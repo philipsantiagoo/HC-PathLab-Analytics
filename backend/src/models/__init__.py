@@ -17,6 +17,18 @@ from .historico_movimentacao import HistoricoMovimentacao
 from .lote_processamento import LoteProcessamento
 from .bloco_parafina import BlocoParafina
 from .lamina import Lamina
+from .catalogo_aghu import (
+    TipoExame,
+    CatalogoExameAghu,
+    MapeamentoTipoExameAghu,
+    LoteIntegracao,
+    SolicitacaoAghu,
+    ItemSolicitacaoAghu,
+    AmostraAghu,
+    ItemAmostraAghu,
+)
+from .usuarios import PerfilUsuario, Papel, PapelUsuario
+from .contador_numeracao import ContadorNumeracaoExame
 
 __all__ = [
     "RefreshToken",
@@ -29,4 +41,16 @@ __all__ = [
     "LoteProcessamento",
     "BlocoParafina",
     "Lamina",
+    "TipoExame",
+    "CatalogoExameAghu",
+    "MapeamentoTipoExameAghu",
+    "LoteIntegracao",
+    "SolicitacaoAghu",
+    "ItemSolicitacaoAghu",
+    "AmostraAghu",
+    "ItemAmostraAghu",
+    "PerfilUsuario",
+    "Papel",
+    "PapelUsuario",
+    "ContadorNumeracaoExame",
 ]

@@ -9,7 +9,7 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..helpers.identificacao import gerar_qr_code, letra_fragmento
+from ..helpers.identificacao import gerar_qr_code
 from ..models.cassete import Cassete
 from ..models.macroscopia import Macroscopia
 from ..providers.implementations.cassete_repository import CasseteRepository
@@ -81,7 +81,7 @@ async def iniciar_macroscopia(
         usuario=usuario,
         ip=ip,
     )
-    if exame is not None:
+    if exame is not None and exame.status == StatusExame.NA_RECEPCAO:
         transicionar(
             session,
             exame,
@@ -133,14 +133,21 @@ async def registrar_macroscopia(
         id_frasco=frasco.id,
         descricao=dados.descricao,
         responsavel=usuario,
-        numero_cassetes=dados.numero_cassetes,
+        numero_cassetes=len(dados.partes),
     )
     macro_repo.adicionar(macroscopia)
 
     cassetes: List[Cassete] = []
     etiquetas: List[EtiquetaOut] = []
-    for i in range(dados.numero_cassetes):
-        letra = letra_fragmento(i)
+    identificadores = [parte.identificador.strip().upper() for parte in dados.partes]
+    if len(set(identificadores)) != len(identificadores):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cada parte da macroscopia precisa ter um identificador único.",
+        )
+
+    for i, parte in enumerate(dados.partes):
+        letra = identificadores[i]
         cassete_id = str(uuid.uuid4())
         qr_code = gerar_qr_code(
             "CASSETE", numero_solicitacao, identificador=cassete_id
@@ -150,6 +157,9 @@ async def registrar_macroscopia(
             id_frasco=frasco.id,
             letra_fragmento=letra,
             qr_code=qr_code,
+            descricao_estrutura=parte.estrutura.strip(),
+            observacoes_macroscopia=parte.observacoes.strip() if parte.observacoes else None,
+            coloracao_padrao=parte.coloracao.strip(),
             status=StatusCassete.AGUARDANDO_PROCESSAMENTO,
             criado_por=usuario,
         )
@@ -162,7 +172,7 @@ async def registrar_macroscopia(
             etapa=Etapa.MACROSCOPIA,
             usuario=usuario,
             ip=ip,
-            observacoes=f"Cassete {letra} gerado na macroscopia",
+            observacoes=f"Cassete {letra} gerado para: {parte.estrutura.strip()}",
         )
         cassetes.append(cassete)
         etiquetas.append(
@@ -175,7 +185,7 @@ async def registrar_macroscopia(
         )
 
     frasco.descricao_macroscopia = dados.descricao
-    frasco.numero_cassetes_gerados = dados.numero_cassetes
+    frasco.numero_cassetes_gerados = len(dados.partes)
     transicionar(
         session,
         frasco,
@@ -183,7 +193,7 @@ async def registrar_macroscopia(
         etapa=Etapa.MACROSCOPIA,
         usuario=usuario,
         ip=ip,
-        observacoes=f"{dados.numero_cassetes} cassete(s) gerado(s)",
+        observacoes=f"{len(dados.partes)} cassete(s) gerado(s)",
     )
     if exame is not None:
         transicionar(

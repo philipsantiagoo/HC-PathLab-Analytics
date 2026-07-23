@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from .resources.database import DatabaseManager, Base
+from .services.catalogos import garantir_catalogos_iniciais
 
 # Importa o pacote de modelos para registrar todas as tabelas em Base.metadata
 # (necessário para o create_all do startup e para o autogenerate do Alembic).
@@ -25,19 +26,23 @@ async def lifespan(app: FastAPI):
         app.state.aghu_db = DatabaseManager(aghu_dsn)
         print("AGHU PostgreSQL connection pool initialized.")
     else:
-        print("WARNING: POSTGRES_DSN not found. Skipping AGHU DB initialization.")
+        print("AGHU source database not configured (POSTGRES_DSN); continuing without direct AGHU access.")
 
-    # Initialize App DB Manager (SQLite) and store in app.state
-    app_dsn = os.getenv("SQLITE_DSN")
+    # APP_DATABASE_DSN recebe o PostgreSQL do Supabase em produção. O fallback
+    # mantém SQLite funcional para desenvolvimento local legado.
+    app_dsn = os.getenv("APP_DATABASE_DSN") or os.getenv("SQLITE_DSN")
     if not app_dsn:
-        raise ValueError("SQLITE_DSN not found in environment variables.")
+        raise ValueError("APP_DATABASE_DSN or SQLITE_DSN not found in environment variables.")
     app.state.app_db = DatabaseManager(app_dsn)
-    print("App SQLite connection pool initialized.")
+    banco_app = "Supabase/PostgreSQL" if app_dsn.startswith("postgresql") else "SQLite"
+    print(f"Application database connection pool initialized: {banco_app}.")
 
     # Create tables for App DB (if they don't exist) - for development only, Alembic handles this in production
     async with app.state.app_db.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("App SQLite tables checked/created.")
+    async with app.state.app_db.async_session_maker() as session:
+        await garantir_catalogos_iniciais(session)
+    print(f"Application database tables checked: {banco_app}.")
 
     yield
 

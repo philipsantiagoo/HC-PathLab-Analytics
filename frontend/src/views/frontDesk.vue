@@ -166,7 +166,7 @@
             <div>
               <p class="font-semibold text-green-700">Recebimento registrado com sucesso!</p>
               <p class="text-sm text-green-600 mt-0.5">
-                Caso {{ codigoGerado }}. Imprima as etiquetas e cole nos frascos correspondentes.
+                Caso {{ codigoGerado }}. Imprima as etiquetas e cole nos frascos correspondentes. O caso já está disponível na Macroscopia.
               </p>
             </div>
           </div>
@@ -175,14 +175,6 @@
             <QrcodeBatchPrint :items="etiquetasFrascos" />
           </div>
 
-          <div class="flex justify-end">
-            <Button variant="primary" class="w-full md:w-auto md:min-w-[200px]" @click="enviarParaMacroscopia">
-              <template #icon>
-                <ArrowRightIcon class="h-5 w-5" />
-              </template>
-              Enviar para Macroscopia
-            </Button>
-          </div>
         </div>
       </Card>
     </div>
@@ -197,16 +189,13 @@ import {
   ExclamationTriangleIcon,
   XCircleIcon,
   CheckCircleIcon,
-  ArrowRightIcon,
 } from '@heroicons/vue/24/outline';
 import Card from '../components/card/card.vue';
 import Button from '../components/button/button.vue';
 import Badge from '../components/badge/badge.vue';
 import QrcodeBatchPrint from '../components/qrcode/qrcodeBatchPrint.vue';
-import { useExamCasesStore } from '../stores/examCases';
-import { useAuthStore } from '../stores/auth';
 import { exameService } from '../services/exameService';
-import { EXAM_TYPE_PREFIX, type ExamType } from '../constants/examTypes';
+import { EXAM_TYPE_PREFIX } from '../constants/examTypes';
 
 interface AghuRawRecord {
   numeroSolicitacaoAghu: string;
@@ -277,8 +266,6 @@ const AGHU_MOCK_DB: Record<string, AghuRawRecord> = {
 };
 
 const toast = useToast();
-const examCasesStore = useExamCasesStore();
-const authStore = useAuthStore();
 
 const codigoBusca = ref('');
 const buscou = ref(false);
@@ -388,49 +375,4 @@ async function registrarPeca() {
   }
 }
 
-async function enviarParaMacroscopia() {
-  if (!registroAghu.value || !frascoIdReal.value) return;
-
-  try {
-    // Muda o status do frasco no backend: Na Recepção → Aguardando Macroscopia.
-    await exameService.encaminharMacroscopia(frascoIdReal.value);
-
-    const aghu = registroAghu.value;
-    // Guarda o contexto rico (AGHU + recepção) no store, chaveado pelo nº de
-    // solicitação real, para a Macroscopia exibir a visão unificada na mesma sessão.
-    examCasesStore.upsertCase(codigoGerado.value, {
-      etapaAtual: 'Em Macroscopia',
-      urgente: urgente.value,
-      aghu: {
-        numeroSolicitacaoAghu: aghu.numeroSolicitacaoAghu,
-        nomePaciente: aghu.nomePaciente,
-        prontuario: aghu.prontuario,
-        idade: aghu.idade,
-        sexo: aghu.sexo,
-        origem: aghu.origem,
-        clinica: aghu.clinica,
-        tipoMaterial: aghu.tipoMaterial,
-        tipoExame: aghu.tipoExameRaw as ExamType,
-        procedimentoSus: aghu.procedimentoSus,
-        indicacaoClinica: aghu.indicacaoClinica,
-      },
-      recepcao: {
-        dataEntrada: new Date(),
-        quantidadeFrascos: quantidadeFrascos.value,
-        descricaoFisica: descricaoFisica.value,
-        frascosIds: etiquetasFrascos.value.map(e => e.identificador),
-        responsavel: authStore.user?.givenName?.[0] || authStore.user?.username || 'Recepção',
-      },
-    });
-
-    toast.success(`Caso ${codigoGerado.value} enviado para a Macroscopia.`);
-    codigoBusca.value = '';
-    buscou.value = false;
-    registroAghu.value = null;
-    registrado.value = false;
-    frascoIdReal.value = null;
-  } catch {
-    // O interceptor do axios já exibe o toast de erro.
-  }
-}
 </script>

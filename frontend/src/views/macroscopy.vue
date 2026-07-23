@@ -418,7 +418,12 @@ async function confirmarClivagem() {
     const result = await exameService.registrarMacroscopia({
       id_frasco: frascoIdReal.value,
       descricao: descricaoMacroscopica.value,
-      numero_cassetes: total,
+      partes: cassetesGerados.value.map(cassete => ({
+        identificador: cassete.id,
+        estrutura: cassete.estrutura,
+        coloracao: cassete.coloracao,
+        observacoes: cassete.observacao,
+      })),
     });
 
     // O backend é a fonte de verdade da identidade dos cassetes (letras A, B, C...).

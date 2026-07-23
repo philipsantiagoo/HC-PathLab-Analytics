@@ -10,5 +10,7 @@ class CasseteOut(BaseModel):
     id_frasco: str
     letra_fragmento: str
     qr_code: str
+    descricao_estrutura: Optional[str] = None
+    observacoes_macroscopia: Optional[str] = None
     coloracao_padrao: str
     status: str

@@ -43,6 +43,8 @@ export interface CasseteOut {
   id_frasco: string;
   letra_fragmento: string;
   qr_code: string;
+  descricao_estrutura?: string | null;
+  observacoes_macroscopia?: string | null;
   coloracao_padrao: string;
   status: string;
 }
@@ -212,7 +214,11 @@ export const exameService = {
     const { data } = await api.post(`/api/frascos/${frascoId}/iniciar-macroscopia`, {});
     return data;
   },
-  async registrarMacroscopia(dados: { id_frasco: string; descricao: string; numero_cassetes: number }): Promise<MacroscopiaResult> {
+  async registrarMacroscopia(dados: {
+    id_frasco: string;
+    descricao: string;
+    partes: { identificador: string; estrutura: string; coloracao: string; observacoes?: string }[];
+  }): Promise<MacroscopiaResult> {
     const { data } = await api.post('/api/macroscopia', dados);
     return data;
   },

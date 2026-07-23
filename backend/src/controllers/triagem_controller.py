@@ -7,6 +7,7 @@ import uuid
 from typing import Optional
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +16,9 @@ from ..helpers.identificacao import (
     gerar_codigo_interno_frasco,
     gerar_numero_solicitacao,
     gerar_qr_code,
+    normalizar_tipo_exame,
 )
+from ..models.catalogo_aghu import TipoExame
 from ..models.exame import Exame
 from ..models.frasco import Frasco
 from ..models.paciente_local import PacienteLocal
@@ -57,7 +60,7 @@ async def registrar_recebimento(
             detail="Informe ao menos CPF ou CNS do paciente.",
         )
 
-    tipo_exame = dados.tipo_exame.strip()
+    tipo_exame = normalizar_tipo_exame(dados.tipo_exame)
     if tipo_exame not in TIPOS_EXAME_VALIDOS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -80,11 +83,17 @@ async def registrar_recebimento(
     numero_solicitacao, sequencial, ano, semestre = await gerar_numero_solicitacao(
         session, tipo_exame=tipo_exame
     )
+    tipo = (
+        await session.execute(
+            select(TipoExame).where(TipoExame.codigo == tipo_exame)
+        )
+    ).scalar_one()
 
     exame = Exame(
         id=str(uuid.uuid4()),
         numero_solicitacao=numero_solicitacao,
         tipo_exame=tipo_exame,
+        id_tipo_exame=tipo.id,
         sequencial=sequencial,
         ano=ano,
         semestre=semestre,
@@ -129,6 +138,27 @@ async def registrar_recebimento(
         usuario=usuario,
         ip=ip,
         observacoes="Frasco recebido na recepção",
+    )
+
+    # A geraÃ§Ã£o do cÃ³digo local libera a peÃ§a para a prÃ³xima bancada.
+    # A recepÃ§Ã£o nÃ£o retÃ©m casos que jÃ¡ possuem cÃ³digo local.
+    transicionar(
+        session,
+        frasco,
+        StatusFrasco.AGUARDANDO_MACROSCOPIA,
+        etapa=Etapa.TRIAGEM,
+        usuario=usuario,
+        ip=ip,
+        observacoes="CÃ³digo local gerado; disponibilizado para macroscopia",
+    )
+    transicionar(
+        session,
+        exame,
+        StatusExame.EM_MACROSCOPIA,
+        etapa=Etapa.MACROSCOPIA,
+        usuario=usuario,
+        ip=ip,
+        observacoes="CÃ³digo local gerado; disponibilizado para macroscopia",
     )
 
     try:
@@ -176,15 +206,28 @@ async def encaminhar_para_macroscopia(
             status_code=status.HTTP_404_NOT_FOUND, detail="Frasco não encontrado."
         )
 
-    transicionar(
-        session,
-        frasco,
-        StatusFrasco.AGUARDANDO_MACROSCOPIA,
-        etapa=Etapa.TRIAGEM,
-        usuario=usuario,
-        ip=ip,
-        observacoes="Encaminhado para macroscopia",
-    )
+    if frasco.status == StatusFrasco.NA_RECEPCAO:
+        transicionar(
+            session,
+            frasco,
+            StatusFrasco.AGUARDANDO_MACROSCOPIA,
+            etapa=Etapa.TRIAGEM,
+            usuario=usuario,
+            ip=ip,
+            observacoes="Encaminhado para macroscopia",
+        )
+
+    exame = await ExameRepository(session).obter(frasco.id_exame)
+    if exame is not None and exame.status == StatusExame.NA_RECEPCAO:
+        transicionar(
+            session,
+            exame,
+            StatusExame.EM_MACROSCOPIA,
+            etapa=Etapa.MACROSCOPIA,
+            usuario=usuario,
+            ip=ip,
+            observacoes="Encaminhado para macroscopia",
+        )
 
     await session.commit()
     await session.refresh(frasco)
