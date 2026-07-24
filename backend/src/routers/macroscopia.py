@@ -33,7 +33,7 @@ async def registrar_macroscopia(
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil(Perfil.MACROSCOPISTA)),
 ):
-    """Registra a macroscopia do frasco e gera os cassetes (A, B, C, ...)."""
+    """Persiste as partes e gera seus cassetes (A ou A1, A2, ...)."""
     return await macroscopia_controller.registrar_macroscopia(
         session, dados, current_user.get("username"), _ip(request)
     )

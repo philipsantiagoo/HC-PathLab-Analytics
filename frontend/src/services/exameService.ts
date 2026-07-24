@@ -41,6 +41,7 @@ export interface FrascoDetalhe {
 export interface CasseteOut {
   id: string;
   id_frasco: string;
+  id_parte_macroscopia?: string | null;
   letra_fragmento: string;
   qr_code: string;
   descricao_estrutura?: string | null;
@@ -52,6 +53,14 @@ export interface CasseteOut {
 export interface MacroscopiaResult {
   macroscopia: { id: string; id_frasco: string; descricao: string; numero_cassetes: number };
   frasco: { id: string; status: string };
+  partes: {
+    id: string;
+    id_macroscopia: string;
+    ordinal: number;
+    letra_identificacao: string;
+    descricao_estrutura: string;
+    quantidade_fragmentos: number;
+  }[];
   cassetes: CasseteOut[];
   etiquetas: { tipo: string; numero_solicitacao: string; codigo: string; qr_code: string }[];
 }
@@ -217,7 +226,10 @@ export const exameService = {
   async registrarMacroscopia(dados: {
     id_frasco: string;
     descricao: string;
-    partes: { identificador: string; estrutura: string; coloracao: string; observacoes?: string }[];
+    partes: {
+      estrutura: string;
+      fragmentos: { coloracao: string; observacoes?: string }[];
+    }[];
   }): Promise<MacroscopiaResult> {
     const { data } = await api.post('/api/macroscopia', dados);
     return data;

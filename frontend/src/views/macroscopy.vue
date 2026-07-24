@@ -153,7 +153,7 @@
             </label>
 
             <div class="border-t border-gray-100 pt-4 space-y-3">
-              <p class="text-xs font-bold text-gray-500 uppercase">Estruturas identificadas</p>
+              <p class="text-xs font-bold text-gray-500 uppercase">Partes da peça</p>
 
               <div v-for="(estrutura, i) in estruturas" :key="estrutura.letra" class="flex items-center gap-3">
                 <span class="font-mono font-bold text-lab-primary bg-lab-primary/10 px-2.5 py-1.5 rounded text-sm w-9 text-center shrink-0">
@@ -163,10 +163,10 @@
                   v-model="estrutura.nome"
                   type="text"
                   class="form-control flex-1"
-                  placeholder="Ex: Útero, Trompa direita..."
+                  placeholder="Ex: Útero, trompa direita..."
                 >
                 <div class="flex items-center gap-1.5 shrink-0">
-                  <label class="text-xs text-gray-500">Cassetes</label>
+                  <label class="text-xs text-gray-500">Fragmentos</label>
                   <input v-model.number="estrutura.quantidadeCassetes" type="number" min="1" class="form-control w-16">
                 </div>
                 <button v-if="estruturas.length > 1" @click="removerEstrutura(i)" class="text-gray-400 hover:text-red-600 shrink-0">
@@ -175,7 +175,7 @@
               </div>
 
               <button @click="adicionarEstrutura" class="text-sm font-medium text-lab-primary hover:underline flex items-center gap-1">
-                <PlusIcon class="h-4 w-4" /> Adicionar estrutura
+                <PlusIcon class="h-4 w-4" /> Adicionar parte
               </button>
             </div>
 
@@ -302,8 +302,12 @@ interface EstruturaForm {
   quantidadeCassetes: number;
 }
 
+interface CasseteRascunho extends CasseteInfo {
+  indiceParte?: number;
+}
+
 const estruturas = ref<EstruturaForm[]>([{ letra: 'A', nome: '', quantidadeCassetes: 1 }]);
-const cassetesGerados = ref<CasseteInfo[]>([]);
+const cassetesGerados = ref<CasseteRascunho[]>([]);
 const finalizado = ref(false);
 const etiquetasCassetes = ref<{ identificador: string; tipo: 'cassete'; rotulo: string }[]>([]);
 
@@ -375,27 +379,48 @@ async function buscarFrasco() {
 }
 
 function adicionarEstrutura() {
-  const proximaLetra = String.fromCharCode(65 + estruturas.value.length);
+  const proximaLetra = letraPartePreview(estruturas.value.length);
   estruturas.value.push({ letra: proximaLetra, nome: '', quantidadeCassetes: 1 });
 }
 
 function removerEstrutura(index: number) {
   estruturas.value.splice(index, 1);
   estruturas.value.forEach((e, i) => {
-    e.letra = String.fromCharCode(65 + i);
+    e.letra = letraPartePreview(i);
   });
+}
+
+function letraPartePreview(indice: number): string {
+  let restante = indice + 1;
+  let letras = '';
+  while (restante > 0) {
+    restante -= 1;
+    letras = String.fromCharCode(65 + (restante % 26)) + letras;
+    restante = Math.floor(restante / 26);
+  }
+  return letras;
 }
 
 function mapearFragmentos() {
   if (!podeMapear.value) return;
 
-  const lista: CasseteInfo[] = [];
-  for (const estrutura of estruturas.value) {
+  const lista: CasseteRascunho[] = [];
+  for (const [indiceParte, estrutura] of estruturas.value.entries()) {
     if (estrutura.quantidadeCassetes === 1) {
-      lista.push({ id: estrutura.letra, estrutura: estrutura.nome, coloracao: STAINING_OPTIONS[0] });
+      lista.push({
+        id: estrutura.letra,
+        estrutura: estrutura.nome,
+        coloracao: STAINING_OPTIONS[0],
+        indiceParte,
+      });
     } else {
       for (let i = 1; i <= estrutura.quantidadeCassetes; i++) {
-        lista.push({ id: `${estrutura.letra}${i}`, estrutura: estrutura.nome, coloracao: STAINING_OPTIONS[0] });
+        lista.push({
+          id: `${estrutura.letra}${i}`,
+          estrutura: estrutura.nome,
+          coloracao: STAINING_OPTIONS[0],
+          indiceParte,
+        });
       }
     }
   }
@@ -418,22 +443,25 @@ async function confirmarClivagem() {
     const result = await exameService.registrarMacroscopia({
       id_frasco: frascoIdReal.value,
       descricao: descricaoMacroscopica.value,
-      partes: cassetesGerados.value.map(cassete => ({
-        identificador: cassete.id,
-        estrutura: cassete.estrutura,
-        coloracao: cassete.coloracao,
-        observacoes: cassete.observacao,
+      // A API recebe a hierarquia, mas não recebe identificadores. A/B/A1/A2
+      // são gerados e persistidos exclusivamente pelo backend.
+      partes: estruturas.value.map((estrutura, indiceParte) => ({
+        estrutura: estrutura.nome,
+        fragmentos: cassetesGerados.value
+          .filter(cassete => cassete.indiceParte === indiceParte)
+          .map(cassete => ({
+            coloracao: cassete.coloracao,
+            observacoes: cassete.observacao,
+          })),
       })),
     });
 
-    // O backend é a fonte de verdade da identidade dos cassetes (letras A, B, C...).
-    // Preserva estrutura/coloração digitadas casando pela ordem de geração.
-    const preview = cassetesGerados.value;
-    cassetesGerados.value = result.cassetes.map((c, i): CasseteInfo => ({
+    // Substitui toda a prévia pelos identificadores efetivamente persistidos.
+    cassetesGerados.value = result.cassetes.map((c): CasseteRascunho => ({
       id: c.letra_fragmento,
-      estrutura: preview[i]?.estrutura ?? '',
-      coloracao: preview[i]?.coloracao ?? STAINING_OPTIONS[0],
-      observacao: preview[i]?.observacao,
+      estrutura: c.descricao_estrutura ?? '',
+      coloracao: c.coloracao_padrao,
+      observacao: c.observacoes_macroscopia ?? undefined,
     }));
 
     examCasesStore.upsertCase(casoAtual.value.codigoLocal, {

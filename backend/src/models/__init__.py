@@ -13,6 +13,7 @@ from .exame import Exame
 from .frasco import Frasco
 from .cassete import Cassete
 from .macroscopia import Macroscopia
+from .parte_macroscopia import ParteMacroscopia
 from .historico_movimentacao import HistoricoMovimentacao
 from .lote_processamento import LoteProcessamento
 from .bloco_parafina import BlocoParafina
@@ -37,6 +38,7 @@ __all__ = [
     "Frasco",
     "Cassete",
     "Macroscopia",
+    "ParteMacroscopia",
     "HistoricoMovimentacao",
     "LoteProcessamento",
     "BlocoParafina",

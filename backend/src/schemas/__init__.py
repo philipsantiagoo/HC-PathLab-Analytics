@@ -5,7 +5,13 @@ from .etiqueta import EtiquetaOut
 from .exame import ExameCreate, ExameOut
 from .frasco import FrascoDetalhe, FrascoOut
 from .historico import HistoricoOut
-from .macroscopia import MacroscopiaCreate, MacroscopiaOut, ParteMacroscopiaCreate
+from .macroscopia import (
+    FragmentoMacroscopiaCreate,
+    MacroscopiaCreate,
+    MacroscopiaOut,
+    ParteMacroscopiaCreate,
+    ParteMacroscopiaOut,
+)
 from .paciente import PacienteInput, PacienteOut
 from .resultados import MacroscopiaResult, TriagemResult
 
@@ -20,6 +26,8 @@ __all__ = [
     "MacroscopiaCreate",
     "MacroscopiaOut",
     "ParteMacroscopiaCreate",
+    "ParteMacroscopiaOut",
+    "FragmentoMacroscopiaCreate",
     "PacienteInput",
     "PacienteOut",
     "MacroscopiaResult",

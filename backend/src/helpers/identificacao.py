@@ -151,3 +151,20 @@ def letra_fragmento(indice: int) -> str:
         indice, resto = divmod(indice - 1, 26)
         letras = chr(ord("A") + resto) + letras
     return letras
+
+
+def identificadores_fragmentos(letra_parte: str, quantidade: int) -> list[str]:
+    """
+    Gera os identificadores dos fragmentos de uma parte.
+
+    Uma parte com um único fragmento mantém apenas a letra (A). Quando há
+    mais de um fragmento, eles recebem numeração sequencial (A1, A2, ...).
+    """
+    letra = letra_parte.strip().upper()
+    if not letra:
+        raise ValueError("A letra da parte é obrigatória.")
+    if quantidade < 1:
+        raise ValueError("A quantidade de fragmentos precisa ser positiva.")
+    if quantidade == 1:
+        return [letra]
+    return [f"{letra}{numero}" for numero in range(1, quantidade + 1)]
