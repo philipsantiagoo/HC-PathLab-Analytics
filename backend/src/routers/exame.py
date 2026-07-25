@@ -1,10 +1,11 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import exame_controller, triagem_controller
+from ..controllers import fluxo_v2_controller as exame_controller
+from ..controllers import fluxo_v2_controller as triagem_controller
 from ..resources.database import get_app_db_session
 from ..schemas.exame import DashboardExameOut, ExameCreate, ExameOut
 from ..schemas.resultados import TriagemResult
@@ -32,11 +33,20 @@ async def registrar_recebimento(
 
 @router.get("/dashboard", response_model=List[DashboardExameOut])
 async def listar_dashboard(
+    limite: int = Query(default=50, ge=1, le=200),
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil()),
 ):
     """Dashboard: lista exames com nome do paciente e flag de SLA."""
-    return await exame_controller.listar_dashboard(session)
+    return await exame_controller.listar_dashboard(session, limite)
+
+
+@router.get("/dashboard/resumo")
+async def resumo_dashboard(
+    session: AsyncSession = Depends(get_app_db_session),
+    current_user: dict = Depends(require_perfil()),
+):
+    return await exame_controller.resumo_dashboard(session)
 
 
 @router.get("", response_model=List[ExameOut])

@@ -14,7 +14,7 @@ Exemplo:
 Formato do número de solicitação (igual ao padrão da equipe e do frontend):
     PREFIXO-NNNN/AA.S
     Ex: HP-0001/26.1  (HP, sequencial 1, ano 2026, semestre 1)
-        IH-0012/26.2  (IHQ, sequencial 12, ano 2026, semestre 2)
+        IHQ-0012/26.2  (IHQ, sequencial 12, ano 2026, semestre 2)
 """
 
 import uuid
@@ -25,21 +25,24 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.exame import Exame
-from ..models.contador_numeracao import ContadorNumeracaoExame
-from ..models.catalogo_aghu import TipoExame
 
 # Mapeamento tipo_exame -> prefixo do código (igual a frontend/src/constants/examTypes.ts)
 TIPO_EXAME_PREFIXO: dict[str, str] = {
     "HP": "HP",
-    "IH": "IH",
+    "IHQ": "IHQ",
     "CCV": "CV",
     "CG": "CG",
-    "CO": "CO",
+    "CONG": "CONG",
 }
 
 # Aceita os valores usados pelos seeds legados, mas persiste sempre o código canônico.
-_ALIAS_TIPO_EXAME = {"IHQ": "IH", "HPDERM": "HP", "CONGELA": "CO", "REVINT": "HP"}
+_ALIAS_TIPO_EXAME = {
+    "IH": "IHQ",
+    "HPDERM": "HP",
+    "CONGELA": "CONG",
+    "CO": "CONG",
+    "REVINT": "HP",
+}
 
 TIPOS_EXAME_VALIDOS = set(TIPO_EXAME_PREFIXO.keys())
 
@@ -86,6 +89,12 @@ async def gerar_numero_solicitacao(
     dentro da transação; a unicidade final é garantida pela constraint UNIQUE
     em Exame.numero_solicitacao.
     """
+    # Fluxos legados ainda podem chamar esta função; os modelos antigos são
+    # carregados somente aqui para não registrarem tabelas públicas no startup
+    # do fluxo v2.
+    from ..models.catalogo_aghu import TipoExame
+    from ..models.contador_numeracao import ContadorNumeracaoExame
+
     if ano is None:
         ano = datetime.now(timezone.utc).year
     if semestre is None:

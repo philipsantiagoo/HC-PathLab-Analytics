@@ -39,7 +39,11 @@ async def lifespan(app: FastAPI):
 
     # Create tables for App DB (if they don't exist) - for development only, Alembic handles this in production
     async with app.state.app_db.engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        # O schema ``pathlab_v2`` existe somente no PostgreSQL e é criado por
+        # migrations. Limitar o create_all às tabelas sem schema mantém o
+        # fallback SQLite de desenvolvimento funcional.
+        tabelas_locais = [t for t in Base.metadata.sorted_tables if t.schema is None]
+        await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, tables=tabelas_locais))
     async with app.state.app_db.async_session_maker() as session:
         await garantir_catalogos_iniciais(session)
     print(f"Application database tables checked: {banco_app}.")

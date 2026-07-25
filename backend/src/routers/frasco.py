@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import macroscopia_controller, triagem_controller
+from ..controllers import fluxo_v2_controller as macroscopia_controller
+from ..controllers import fluxo_v2_controller as triagem_controller
 from ..resources.database import get_app_db_session
 from ..schemas.etiqueta import EtiquetaOut
 from ..schemas.frasco import FrascoDetalhe, FrascoOut

@@ -11,8 +11,8 @@ TIPOS_EXAME_INICIAIS = (
     ("HP", "Histopatológico", "HP", 20),
     ("CG", "Citologia Geral", "CG", 20),
     ("CCV", "Citologia Cérvico-vaginal", "CV", 20),
-    ("IH", "Imuno-histoquímica", "IH", 20),
-    ("CO", "Congelação", "CO", 1),
+    ("IHQ", "Imuno-histoquímica", "IHQ", 20),
+    ("CONG", "Congelação", "CONG", 1),
 )
 
 PAPEIS_INICIAIS = (

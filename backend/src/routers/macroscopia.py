@@ -1,10 +1,10 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import macroscopia_controller
+from ..controllers import fluxo_v2_controller as macroscopia_controller
 from ..resources.database import get_app_db_session
 from ..schemas.frasco import FrascoDetalhe
 from ..schemas.macroscopia import MacroscopiaCreate
@@ -19,11 +19,12 @@ def _ip(request: Request) -> str | None:
 
 @router.get("/pendencias", response_model=List[FrascoDetalhe])
 async def listar_pendencias(
+    limite: int = Query(default=50, ge=1, le=200),
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil(Perfil.MACROSCOPISTA)),
 ):
     """Fila da estação: frascos aguardando macroscopia."""
-    return await macroscopia_controller.listar_pendencias(session)
+    return await macroscopia_controller.listar_pendencias_macroscopia(session, limite)
 
 
 @router.post("", response_model=MacroscopiaResult, status_code=201)

@@ -27,10 +27,14 @@ from ..models.catalogo_aghu import (
 )
 
 
-MAPEAMENTO_INICIAL = {
-    "APECR": "HP", "HPDER": "HP", "MBIOP": "HP", "MPCIR": "HP",
-    "COUT2": "HP", "COLUT": "HP", "CITOP": "CG", "CPMAM": "CG",
-    "CCVM": "CCV", "IMUHI": "IH", "CONGE": "CO",
+# O tipo operacional é definido pela unidade executora do laboratório.  Sigla
+# e descrição do exame são metadados e não podem alterar essa classificação.
+MAPEAMENTO_POR_CODIGO_LAB = {
+    "139": "CCV",
+    "203": "CG",
+    "205": "CONG",
+    "207": "HP",
+    "209": "IHQ",
 }
 
 
@@ -58,7 +62,7 @@ async def importar_csv_aghu(
     lote = LoteIntegracao(origem="CSV", arquivo_origem=str(caminho), hash_origem=digest)
     session.add(lote)
     await session.flush()
-    siglas_sem_mapeamento: set[str] = set()
+    codigos_lab_sem_mapeamento: set[str] = set()
 
     try:
         with caminho.open("r", encoding="utf-8-sig", newline="") as arquivo:
@@ -112,16 +116,35 @@ async def importar_csv_aghu(
                     )
                     session.add(catalogo)
                     await session.flush()
-                    tipo_codigo = MAPEAMENTO_INICIAL.get(sigla)
-                    if tipo_codigo:
-                        tipo = await _um(session, TipoExame, TipoExame.codigo == tipo_codigo)
-                        if tipo:
-                            session.add(MapeamentoTipoExameAghu(
-                                id_catalogo_exame_aghu=catalogo.id, id_tipo_exame=tipo.id,
-                                observacoes="Mapeamento inicial importado do inventário CSV",
-                            ))
-                    else:
-                        siglas_sem_mapeamento.add(sigla)
+
+                tipo_codigo = MAPEAMENTO_POR_CODIGO_LAB.get(lab)
+                if not tipo_codigo:
+                    codigos_lab_sem_mapeamento.add(lab)
+                else:
+                    tipo = await _um(session, TipoExame, TipoExame.codigo == tipo_codigo)
+                    if tipo is None:
+                        raise ValueError(f"Tipo de exame não configurado: {tipo_codigo}")
+                    mapeamentos = (
+                        await session.execute(
+                            select(MapeamentoTipoExameAghu).where(
+                                MapeamentoTipoExameAghu.id_catalogo_exame_aghu == catalogo.id
+                            )
+                        )
+                    ).scalars().all()
+                    correto = next(
+                        (m for m in mapeamentos if m.id_tipo_exame == tipo.id), None
+                    )
+                    if correto is None:
+                        correto = MapeamentoTipoExameAghu(
+                            id_catalogo_exame_aghu=catalogo.id,
+                            id_tipo_exame=tipo.id,
+                            observacoes="Classificação obrigatória por codigo_lab",
+                        )
+                        session.add(correto)
+                    correto.ativo = True
+                    for mapeamento in mapeamentos:
+                        if mapeamento.id != correto.id:
+                            mapeamento.ativo = False
 
                 # A view atual não expõe item.seqp. Usamos a amostra como chave
                 # temporária, marcada no payload, até a view fornecer o campo.
@@ -185,7 +208,7 @@ async def importar_csv_aghu(
                 "atualizadas": lote.linhas_atualizadas,
                 "rejeitadas": lote.linhas_rejeitadas,
                 "concluido": True,
-                "siglas_sem_mapeamento": sorted(siglas_sem_mapeamento),
+                "codigos_lab_sem_mapeamento": sorted(codigos_lab_sem_mapeamento),
             })
     except Exception as exc:
         await session.rollback()
