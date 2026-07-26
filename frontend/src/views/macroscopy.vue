@@ -197,9 +197,16 @@
               :key="cassete.id"
               class="grid grid-cols-[48px_1fr_256px_144px] items-center gap-3 border border-gray-200 rounded-lg p-3"
             >
-              <span class="h-10 font-mono font-bold text-lab-primary bg-lab-primary/10 rounded text-sm inline-flex items-center justify-center">
-                {{ cassete.id }}
-              </span>
+              <!-- Badge do ID + descrição da estrutura abaixo -->
+              <div class="flex flex-col items-center gap-0.5">
+                <span class="h-7 w-full font-mono font-bold text-lab-primary bg-lab-primary/10 rounded text-sm inline-flex items-center justify-center">
+                  {{ cassete.id }}
+                </span>
+                <span class="text-[9px] text-gray-400 text-center leading-tight truncate w-full">
+                  {{ cassete.estrutura }}
+                </span>
+              </div>
+
               <input
                 v-model="cassete.observacao"
                 type="text"
@@ -209,7 +216,7 @@
               <select v-model="cassete.coloracao" class="form-control h-10 w-full">
                 <option v-for="opcao in STAINING_OPTIONS" :key="opcao" :value="opcao">{{ opcao }}</option>
               </select>
-              <span class="h-10 text-xs font-mono text-gray-400 truncate flex items-center justify-start pl-6 loading-none">
+              <span class="h-10 text-xs font-mono text-gray-400 truncate flex items-center justify-start pl-6 leading-none">
                 {{ casoAtual.codigoLocal }}-{{ cassete.id }}
               </span>
             </div>
@@ -280,11 +287,9 @@ const examCasesStore = useExamCasesStore();
 const codigoFrasco = ref('');
 const buscou = ref(false);
 const casoAtual = ref<ExamCaseDetail | null>(null);
-// Identidade real do frasco no backend (resolvida na busca).
 const frascoIdReal = ref<string | null>(null);
 const frascoStatusReal = ref('');
 
-// Deriva o tipo de exame a partir do prefixo do nº de solicitação (ex: "HP-0009/26.2" → HP).
 function tipoExameDoNumero(numero: string): ExamType {
   const prefixo = numero.split('-')[0];
   const entrada = (Object.entries(EXAM_TYPE_PREFIX) as [ExamType, string][]).find(([, p]) => p === prefixo);
@@ -326,8 +331,6 @@ async function buscarFrasco() {
   const code = codigoFrasco.value.trim();
   if (!code) return;
 
-  // O código impresso na Recepção é o "codigo_interno" (nº solicitação + "-F1");
-  // se o usuário digitar só o nº de solicitação, busca por ele.
   const params = /-F\d+$/i.test(code) ? { codigo_interno: code } : { numero_solicitacao: code };
   try {
     const [frasco] = await exameService.buscarFrasco(params);
@@ -336,11 +339,9 @@ async function buscarFrasco() {
     frascoIdReal.value = frasco.id_frasco;
     frascoStatusReal.value = frasco.status;
 
-    // 'Processamento Completo' = macroscopia já registrada → caso já avançou.
     const etapa: ExamCaseDetail['etapaAtual'] =
       frasco.status === 'Processamento Completo' ? 'Em Processamento' : 'Em Macroscopia';
 
-    // Usa o contexto rico da mesma sessão (Recepção) ou sintetiza a partir do backend.
     const local = examCasesStore.getCase(frasco.numero_solicitacao);
     const base: ExamCaseDetail = local ?? {
       codigoLocal: frasco.numero_solicitacao,
@@ -367,10 +368,9 @@ async function buscarFrasco() {
       },
     };
 
-    // Status do backend é a fonte de verdade da etapa exibida.
     casoAtual.value = { ...base, etapaAtual: etapa };
   } catch {
-    // interceptor exibe erro; casoAtual permanece null → template mostra "não encontrado".
+    // interceptor exibe erro
   }
 }
 
@@ -391,12 +391,15 @@ function mapearFragmentos() {
 
   const lista: CasseteInfo[] = [];
   for (const estrutura of estruturas.value) {
-    if (estrutura.quantidadeCassetes === 1) {
-      lista.push({ id: estrutura.letra, estrutura: estrutura.nome, coloracao: STAINING_OPTIONS[0] });
-    } else {
-      for (let i = 1; i <= estrutura.quantidadeCassetes; i++) {
-        lista.push({ id: `${estrutura.letra}${i}`, estrutura: estrutura.nome, coloracao: STAINING_OPTIONS[0] });
-      }
+    // CORRIGIDO: sempre gera com número (A1, A2, B1, B2...) — mesmo quando
+    // a estrutura tem apenas 1 cassete. Evita mistura de IDs (A vs B1) que
+    // desalinhava o mapeamento com o backend e confundia a visualização.
+    for (let i = 1; i <= estrutura.quantidadeCassetes; i++) {
+      lista.push({
+        id: `${estrutura.letra}${i}`,
+        estrutura: estrutura.nome,
+        coloracao: STAINING_OPTIONS[0],
+      });
     }
   }
   cassetesGerados.value = lista;
@@ -409,7 +412,6 @@ async function confirmarClivagem() {
   if (total === 0) return;
 
   try {
-    // O backend exige o frasco 'Em Macroscopia' antes de registrar.
     if (frascoStatusReal.value === 'Aguardando Macroscopia') {
       await exameService.iniciarMacroscopia(frascoIdReal.value);
       frascoStatusReal.value = 'Em Macroscopia';
@@ -421,8 +423,6 @@ async function confirmarClivagem() {
       numero_cassetes: total,
     });
 
-    // O backend é a fonte de verdade da identidade dos cassetes (letras A, B, C...).
-    // Preserva estrutura/coloração digitadas casando pela ordem de geração.
     const preview = cassetesGerados.value;
     cassetesGerados.value = result.cassetes.map((c, i): CasseteInfo => ({
       id: c.letra_fragmento,
@@ -432,7 +432,7 @@ async function confirmarClivagem() {
     }));
 
     examCasesStore.upsertCase(casoAtual.value.codigoLocal, {
-      etapaAtual: 'Em Processamento', // o backend já avançou o exame nesta etapa
+      etapaAtual: 'Em Processamento',
       macroscopia: {
         dataMacro: new Date(dataMacro.value),
         responsavel: responsavel.value,
@@ -451,7 +451,7 @@ async function confirmarClivagem() {
     finalizado.value = true;
     toast.success('Clivagem registrada e etiquetas emitidas.');
   } catch {
-    // O interceptor do axios já exibe o toast de erro.
+    // interceptor exibe erro
   }
 }
 
