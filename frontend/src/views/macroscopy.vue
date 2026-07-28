@@ -217,9 +217,16 @@
               :key="cassete.id"
               class="grid grid-cols-[48px_1fr_256px_144px] items-center gap-3 border border-gray-200 rounded-lg p-3"
             >
-              <span class="h-10 font-mono font-bold text-lab-primary bg-lab-primary/10 rounded text-sm inline-flex items-center justify-center">
-                {{ cassete.id }}
-              </span>
+              <!-- Badge do ID + descrição da estrutura abaixo -->
+              <div class="flex flex-col items-center gap-0.5">
+                <span class="h-7 w-full font-mono font-bold text-lab-primary bg-lab-primary/10 rounded text-sm inline-flex items-center justify-center">
+                  {{ cassete.id }}
+                </span>
+                <span class="text-[9px] text-gray-400 text-center leading-tight truncate w-full">
+                  {{ cassete.estrutura }}
+                </span>
+              </div>
+
               <input
                 v-model="cassete.observacao"
                 type="text"
@@ -229,6 +236,7 @@
               <select v-model="cassete.coloracao" class="form-control h-10 w-full">
                 <option v-for="opcao in STAINING_OPTIONS" :key="opcao" :value="opcao">{{ opcao }}</option>
               </select>
+
             </div>
 
             <div>
@@ -605,6 +613,7 @@ async function buscarFrasco() {
     if (frasco.responsavel_macro) responsavel.value = frasco.responsavel_macro;
     if (frasco.data_macro) dataMacro.value = frasco.data_macro.slice(0, 10);
 
+
     const local = examCasesStore.getCase(frasco.numero_solicitacao);
     const base: ExamCaseDetail = local ?? {
       codigoLocal: frasco.numero_solicitacao,
@@ -713,6 +722,7 @@ async function confirmarClivagem() {
   if (total === 0) return;
 
   try {
+
     const result = await exameService.registrarMacroscopia({
       id_frasco: frascoIdReal.value,
       descricao: descricaoMacroscopica.value,
