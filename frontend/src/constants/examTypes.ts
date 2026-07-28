@@ -1,21 +1,17 @@
-export type ExamType = 'HP' | 'IHQ' | 'HPDerm' | 'CCV' | 'CG' | 'RevInt' | 'Congela';
+export type ExamType = 'HP' | 'CG' | 'CCV' | 'IHQ' | 'CONG';
 
 export const EXAM_TYPE_PREFIX: Record<ExamType, string> = {
   HP: 'HP',
-  IHQ: 'IH',
-  HPDerm: 'HD',
-  CCV: 'CV',
   CG: 'CG',
-  RevInt: 'RI',
-  Congela: 'CO',
+  CCV: 'CV',
+  IHQ: 'IHQ',
+  CONG: 'CONG',
 };
 
 export const EXAM_TYPE_LABEL: Record<ExamType, string> = {
-  HP: 'Histopatológico Geral',
-  IHQ: 'Imunohistoquímica',
-  HPDerm: 'Histopatológico Dermatológico',
-  CCV: 'Citologia Cervicovaginal',
+  HP: 'Histopatológico',
   CG: 'Citologia Geral',
-  RevInt: 'Revisão Interna',
-  Congela: 'Congelação',
+  CCV: 'Citologia Cérvico-vaginal',
+  IHQ: 'Imuno-histoquímica',
+  CONG: 'Congelação',
 };

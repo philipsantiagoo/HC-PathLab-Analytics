@@ -157,10 +157,77 @@
             </div>
 
             <div>
-              <label class="form-label" for="responsavelAssume">Responsável (Macro) *</label>
-              <select id="responsavelAssume" v-model="responsavel" class="form-control">
-                <option value="" disabled>Selecione...</option>
-                <option v-for="nome in RESPONSAVEIS_MACROSCOPIA" :key="nome" :value="nome">{{ nome }}</option>
+              <label class="form-label" for="descricaoMacro">Descrição Macroscópica Completa *</label>
+              <textarea
+                id="descricaoMacro"
+                v-model="descricaoMacroscopica"
+                rows="4"
+                class="form-control"
+                placeholder="Ex: Recebido frasco com fixador contendo fragmento de tecido nodular, pardacento, medindo..."
+              ></textarea>
+            </div>
+
+            <label class="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+              <input type="checkbox" v-model="sobraMaterial" class="h-4 w-4 text-lab-primary rounded border-gray-300">
+              Houve sobra de material?
+            </label>
+
+            <div class="border-t border-gray-100 pt-4 space-y-3">
+              <p class="text-xs font-bold text-gray-500 uppercase">Partes da peça</p>
+
+              <div v-for="(estrutura, i) in estruturas" :key="estrutura.letra" class="flex items-center gap-3">
+                <span class="font-mono font-bold text-lab-primary bg-lab-primary/10 px-2.5 py-1.5 rounded text-sm w-9 text-center shrink-0">
+                  {{ estrutura.letra }}
+                </span>
+                <input
+                  v-model="estrutura.nome"
+                  type="text"
+                  class="form-control flex-1"
+                  placeholder="Ex: Útero, trompa direita..."
+                >
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <label class="text-xs text-gray-500">Fragmentos</label>
+                  <input v-model.number="estrutura.quantidadeCassetes" type="number" min="1" class="form-control w-16">
+                </div>
+                <button v-if="estruturas.length > 1" @click="removerEstrutura(i)" class="text-gray-400 hover:text-red-600 shrink-0">
+                  <TrashIcon class="h-5 w-5" />
+                </button>
+              </div>
+
+              <button @click="adicionarEstrutura" class="text-sm font-medium text-lab-primary hover:underline flex items-center gap-1">
+                <PlusIcon class="h-4 w-4" /> Adicionar parte
+              </button>
+            </div>
+
+            <Button variant="primary" :disabled="!podeMapear" class="w-full" @click="mapearFragmentos">
+              Mapear Fragmentos (Cassetes)
+            </Button>
+          </div>
+        </Card>
+
+        <Card v-else>
+          <template #header>
+            <h2 class="text-lg font-bold text-lab-text">Configuração dos Cassetes</h2>
+            <p class="text-sm text-gray-500">Confirme a coloração de cada cassete antes de emitir as etiquetas</p>
+          </template>
+
+          <div class="space-y-3">
+            <div
+              v-for="cassete in cassetesGerados"
+              :key="cassete.id"
+              class="grid grid-cols-[48px_1fr_256px_144px] items-center gap-3 border border-gray-200 rounded-lg p-3"
+            >
+              <span class="h-10 font-mono font-bold text-lab-primary bg-lab-primary/10 rounded text-sm inline-flex items-center justify-center">
+                {{ cassete.id }}
+              </span>
+              <input
+                v-model="cassete.observacao"
+                type="text"
+                class="form-control h-10 w-full min-w-0"
+                placeholder="Observações"
+              >
+              <select v-model="cassete.coloracao" class="form-control h-10 w-full">
+                <option v-for="opcao in STAINING_OPTIONS" :key="opcao" :value="opcao">{{ opcao }}</option>
               </select>
             </div>
 
@@ -492,8 +559,12 @@ interface EstruturaForm {
   quantidadeCassetes: number;
 }
 
+interface CasseteRascunho extends CasseteInfo {
+  indiceParte?: number;
+}
+
 const estruturas = ref<EstruturaForm[]>([{ letra: 'A', nome: '', quantidadeCassetes: 1 }]);
-const cassetesGerados = ref<CasseteInfo[]>([]);
+const cassetesGerados = ref<CasseteRascunho[]>([]);
 const finalizado = ref(false);
 const etiquetasCassetes = ref<{ identificador: string; tipo: 'cassete'; rotulo: string }[]>([]);
 
@@ -587,28 +658,49 @@ function repassarExame() {
 }
 
 function adicionarEstrutura() {
-  const proximaLetra = String.fromCharCode(65 + estruturas.value.length);
+  const proximaLetra = letraPartePreview(estruturas.value.length);
   estruturas.value.push({ letra: proximaLetra, nome: '', quantidadeCassetes: 1 });
 }
 
 function removerEstrutura(index: number) {
   estruturas.value.splice(index, 1);
   estruturas.value.forEach((e, i) => {
-    e.letra = String.fromCharCode(65 + i);
+    e.letra = letraPartePreview(i);
   });
+}
+
+function letraPartePreview(indice: number): string {
+  let restante = indice + 1;
+  let letras = '';
+  while (restante > 0) {
+    restante -= 1;
+    letras = String.fromCharCode(65 + (restante % 26)) + letras;
+    restante = Math.floor(restante / 26);
+  }
+  return letras;
 }
 
 function mapearFragmentos() {
   if (!podeMapear.value) return;
 
-  const lista: CasseteInfo[] = [];
-  for (const estrutura of estruturas.value) {
-    for (let i = 1; i <= estrutura.quantidadeCassetes; i++) {
+  const lista: CasseteRascunho[] = [];
+  for (const [indiceParte, estrutura] of estruturas.value.entries()) {
+    if (estrutura.quantidadeCassetes === 1) {
       lista.push({
-        id: `${estrutura.letra}${i}`,
+        id: estrutura.letra,
         estrutura: estrutura.nome,
         coloracao: STAINING_OPTIONS[0],
+        indiceParte,
       });
+    } else {
+      for (let i = 1; i <= estrutura.quantidadeCassetes; i++) {
+        lista.push({
+          id: `${estrutura.letra}${i}`,
+          estrutura: estrutura.nome,
+          coloracao: STAINING_OPTIONS[0],
+          indiceParte,
+        });
+      }
     }
   }
   cassetesGerados.value = lista;
@@ -624,15 +716,25 @@ async function confirmarClivagem() {
     const result = await exameService.registrarMacroscopia({
       id_frasco: frascoIdReal.value,
       descricao: descricaoMacroscopica.value,
-      numero_cassetes: total,
+      // A API recebe a hierarquia, mas não recebe identificadores. A/B/A1/A2
+      // são gerados e persistidos exclusivamente pelo backend.
+      partes: estruturas.value.map((estrutura, indiceParte) => ({
+        estrutura: estrutura.nome,
+        fragmentos: cassetesGerados.value
+          .filter(cassete => cassete.indiceParte === indiceParte)
+          .map(cassete => ({
+            coloracao: cassete.coloracao,
+            observacoes: cassete.observacao,
+          })),
+      })),
     });
 
-    const preview = cassetesGerados.value;
-    cassetesGerados.value = result.cassetes.map((c: any, i: number): CasseteInfo => ({
+    // Substitui toda a prévia pelos identificadores efetivamente persistidos.
+    cassetesGerados.value = result.cassetes.map((c): CasseteRascunho => ({
       id: c.letra_fragmento,
-      estrutura: preview[i]?.estrutura ?? '',
-      coloracao: preview[i]?.coloracao ?? STAINING_OPTIONS[0],
-      observacao: preview[i]?.observacao,
+      estrutura: c.descricao_estrutura ?? '',
+      coloracao: c.coloracao_padrao,
+      observacao: c.observacoes_macroscopia ?? undefined,
     }));
 
     examCasesStore.upsertCase(casoAtual.value.codigoLocal, {

@@ -45,7 +45,8 @@
         </p>
       </template>
 
-      <DataTable :headers="headers" :items="examesComSla">
+      <p v-if="carregando" class="py-8 text-center text-sm text-gray-500">Carregando resumo e últimos exames…</p>
+      <DataTable v-else :headers="headers" :items="examesComSla">
         <template #item-etapa="{ item }">
           <Badge :color="STATUS_COLOR[item.etapa]">{{ item.etapa }}</Badge>
         </template>
@@ -141,9 +142,13 @@ interface ExameDashboardItem {
 }
 
 const exames = ref<ExameDashboardItem[]>([]);
+const resumo = ref<{ por_status: Record<string, number>; atrasados: number; alerta: number }>({ por_status: {}, atrasados: 0, alerta: 0 });
+const carregando = ref(true);
 
 onMounted(async () => {
-  const dados = await exameService.dashboard();
+  try {
+  const [dados, dadosResumo] = await Promise.all([exameService.dashboard(), exameService.resumoDashboard()]);
+  resumo.value = dadosResumo;
   exames.value = dados.map(e => ({
     id: e.id,
     solicitacao: e.solicitacao,
@@ -154,6 +159,9 @@ onMounted(async () => {
     dataChegadaEtapa: e.data_chegada_etapa ? new Date(e.data_chegada_etapa) : undefined,
     dataInicioTrabalho: e.data_inicio_trabalho ? new Date(e.data_inicio_trabalho) : undefined,
   }));
+  } finally {
+    carregando.value = false;
+  }
 });
 
 const examesComSla = computed(() => {
@@ -174,13 +182,15 @@ const examesComSla = computed(() => {
   });
 });
 
-const qtdAtrasados = computed(() => examesComSla.value.filter(e => e.slaStatus === 'atrasado').length);
-const qtdNoAlerta = computed(() => examesComSla.value.filter(e => e.slaStatus === 'alerta').length);
+const examesEmAlerta = computed(() => examesComSla.value.filter(e => e.slaStatus !== 'ok'));
+const qtdAtrasados = computed(() => resumo.value.atrasados);
+const qtdNoAlerta = computed(() => resumo.value.alerta);
+const temAtrasado = computed(() => qtdAtrasados.value > 0);
 
 const statusCards = computed(() => {
   return EXAM_STATUSES.map(status => ({
     label: status,
-    count: exames.value.filter(e => e.etapa === status).length,
+    count: resumo.value.por_status[status] ?? 0,
   }));
 });
 </script>

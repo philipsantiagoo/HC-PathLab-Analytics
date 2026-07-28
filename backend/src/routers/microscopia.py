@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import microscopia_controller
+from ..controllers import fluxo_v2_controller as microscopia_controller
 from ..resources.database import get_app_db_session
 
 router = APIRouter(prefix="/api/microscopia", tags=["Microscopia"])
@@ -28,7 +28,7 @@ async def listar_pendencias(
     current_user: dict = Depends(require_perfil(Perfil.PATOLOGISTA, Perfil.RESIDENTE)),
 ):
     """Fila da microscopia: exames Em Microscopia ou em Revisão Pendente."""
-    return await microscopia_controller.listar_pendencias(session)
+    return await microscopia_controller.listar_pendencias_microscopia(session)
 
 
 @router.post("/{id_exame}/laudo", response_model=dict)
