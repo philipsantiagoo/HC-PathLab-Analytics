@@ -20,6 +20,8 @@ class PacienteLocal(Base):
     __tablename__ = "pacientes_local"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    codigo_paciente_aghu = Column(String, unique=True, index=True, nullable=True)
+    prontuario = Column(String, index=True, nullable=True)
     cpf = Column(String(11), unique=True, index=True, nullable=True)
     cns = Column(String(15), unique=True, index=True, nullable=True)
     nome = Column(String, nullable=False)

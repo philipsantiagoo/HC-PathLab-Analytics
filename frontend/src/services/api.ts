@@ -12,9 +12,9 @@ const api = axios.create({
 
 api.interceptors.request.use(config => {
   const authStore = useAuthStore();
-  const uiStore = useUiStore();
-
-  uiStore.startLoading();
+  // O overlay global bloqueava a troca de telas a cada GET. Apenas ações
+  // explicitamente marcadas podem solicitá-lo; as telas usam loading local.
+  if ((config as any).globalLoading) useUiStore().startLoading();
 
   const token = authStore.accessToken;
   if (token) {
@@ -40,11 +40,11 @@ const processQueue = (error: any, token: string | null = null) => {
 
 api.interceptors.response.use(
   response => {
-    useUiStore().stopLoading();
+    if ((response.config as any).globalLoading) useUiStore().stopLoading();
     return response;
   },
   async error => {
-    useUiStore().stopLoading();
+    if ((error.config as any)?.globalLoading) useUiStore().stopLoading();
 
     const originalRequest = error.config;
     const authStore = useAuthStore();

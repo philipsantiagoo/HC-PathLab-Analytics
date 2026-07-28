@@ -120,6 +120,7 @@ openspec/
 # Em desenvolvimento usar: python backend/seed_dados.py
 data/
 backend/data/
+CSV - PATOLOGIA-20260723T002707Z-1-001/
 
 # Banco de dados local
 *.sqlite
