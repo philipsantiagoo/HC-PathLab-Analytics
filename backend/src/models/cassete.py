@@ -18,8 +18,13 @@ class Cassete(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     id_frasco = Column(String, ForeignKey("frascos.id"), nullable=False, index=True)
+    id_parte_macroscopia = Column(
+        String, ForeignKey("partes_macroscopia.id"), nullable=True, index=True
+    )
     letra_fragmento = Column(String, nullable=False)
     qr_code = Column(String, unique=True, index=True, nullable=False)
+    descricao_estrutura = Column(Text, nullable=True)
+    observacoes_macroscopia = Column(Text, nullable=True)
     coloracao_padrao = Column(String, nullable=False, default="HE")
     status = Column(String, nullable=False, default="Aguardando Processamento")
     id_lote_processamento = Column(

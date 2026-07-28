@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import processamento_controller
+from ..controllers import fluxo_v2_controller as processamento_controller
 from ..resources.database import get_app_db_session
 from ..schemas.bloco import BlocoOut, BlocoDetalhe, GerarLaminasRequest
 from ..schemas.lamina import LaminaOut, GerarLaminasResult
@@ -30,7 +30,7 @@ async def listar_pendencias(
     current_user: dict = Depends(require_perfil(Perfil.TECNICO)),
 ):
     """Fila de cassetes aguardando processamento técnico."""
-    return await processamento_controller.listar_pendencias(session)
+    return await processamento_controller.listar_pendencias_processamento(session)
 
 
 @router.post("/lote", response_model=dict, status_code=201)

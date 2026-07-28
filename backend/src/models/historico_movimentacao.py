@@ -25,6 +25,7 @@ class HistoricoMovimentacao(Base):
     status_anterior = Column(String, nullable=True)
     status_novo = Column(String, nullable=False)
     usuario_responsavel = Column(String, nullable=True)
+    id_usuario_responsavel = Column(String, ForeignKey("perfis_usuarios.id"), nullable=True, index=True)
     timestamp_transicao = Column(DateTime, server_default=func.now())
     ip_origem = Column(String, nullable=True)
     observacoes = Column(Text, nullable=True)

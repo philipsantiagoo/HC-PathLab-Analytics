@@ -16,6 +16,8 @@ Quando o HC definir os grupos, basta preencher `GRUPO_AD_PARA_PERFIL` e desligar
 (src/routers/admin.py).
 """
 
+import os
+
 from fastapi import Depends, HTTPException, status
 
 from .auth import auth_handler
@@ -39,7 +41,9 @@ GRUPO_AD_PARA_PERFIL: dict[str, str] = {
 
 # Enquanto o mapeamento de perfis não está definido pelo HC, libera usuários
 # autenticados nas rotas operacionais. Trocar para False quando completo.
-MODO_PERMISSIVO = True
+# Desenvolvimento pode manter True enquanto os grupos AD são definidos.
+# Em produção, configure MODO_PERMISSIVO=false antes de liberar a aplicação.
+MODO_PERMISSIVO = os.getenv("MODO_PERMISSIVO", "true").strip().lower() == "true"
 
 
 def is_admin(current_user: dict) -> bool:

@@ -11,6 +11,8 @@ from starlette.concurrency import run_in_threadpool
 
 
 from ..auth.auth import auth_handler, JWT_EXP_HOURS, REFRESH_TOKEN_EXP_DAYS
+from ..auth.perfis import perfis_do_usuario
+from ..services.usuarios import sincronizar_usuario_autenticado
 
 from ..resources.database import get_app_db_session
 
@@ -61,6 +63,8 @@ async def login(
         data=user,
         expires_delta=access_token_expires
     )
+
+    await sincronizar_usuario_autenticado(db, user, perfis_do_usuario(user))
 
 
 

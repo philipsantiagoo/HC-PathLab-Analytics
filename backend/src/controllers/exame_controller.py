@@ -149,6 +149,10 @@ async def obter_detalhe(session: AsyncSession, id_exame: str) -> dict:
             ],
         }
 
+    if macroscopia:
+        for parte, cassete in zip(macroscopia["cassetes"], cassetes):
+            parte["estrutura"] = cassete.descricao_estrutura or parte["estrutura"]
+
     processamento = None
     if blocos:
         processamento = {
