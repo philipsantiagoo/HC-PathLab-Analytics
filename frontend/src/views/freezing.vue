@@ -104,7 +104,7 @@
               <p class="text-gray-800 mt-1">{{ casoAtual.aghu.indicacaoClinica }}</p>
             </div>
 
-            <!-- Ciclos anteriores (se houve "margem comprometida" → novo fragmento) -->
+            <!-- Ciclos anteriores -->
             <div v-if="casoAtual.ciclosCongelamento?.length" class="border-t border-gray-100 pt-4">
               <p class="text-xs font-bold text-gray-500 uppercase mb-2">
                 Ciclos anteriores ({{ casoAtual.ciclosCongelamento.length }})
@@ -113,12 +113,21 @@
                 <div
                   v-for="(ciclo, i) in casoAtual.ciclosCongelamento"
                   :key="i"
-                  class="flex items-center justify-between gap-3 p-2 bg-gray-50 rounded-lg text-xs"
+                  class="flex flex-col gap-2 p-3 bg-gray-50 rounded-lg text-xs"
                 >
-                  <span class="text-gray-500">Ciclo {{ i + 1 }} — {{ formatDateShort(ciclo.data) }}</span>
-                  <Badge :color="ciclo.resultado === 'comprometida' ? 'red' : 'green'">
-                    {{ ciclo.resultado === 'comprometida' ? 'Margem comprometida' : 'Margem livre' }}
-                  </Badge>
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-gray-500 font-semibold">Ciclo {{ i + 1 }} — {{ formatDateShort(ciclo.data) }}</span>
+                    <Badge :color="ciclo.conduta === 'comprometida' ? 'red' : (ciclo.conduta === 'livre' ? 'green' : 'gray')">
+                      {{ ciclo.conduta === 'comprometida' ? 'Requer ampliação' : (ciclo.conduta === 'livre' ? 'Margem livre / Liberado' : 'Pendente') }}
+                    </Badge>
+                  </div>
+                  <div>
+                    <span class="text-[10px] font-semibold text-gray-400 uppercase">Diagnóstico:</span>
+                    <p class="text-gray-700 font-medium whitespace-pre-line mt-0.5">{{ ciclo.resultado }}</p>
+                  </div>
+                  <div v-if="ciclo.observacao" class="bg-white p-2 border border-gray-100 rounded text-gray-600 italic">
+                    {{ ciclo.observacao }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -161,21 +170,36 @@
             </div>
 
             <div class="border-t border-gray-100 pt-4">
-              <label class="form-label" for="resultado">Resultado do patologista *</label>
-              <select id="resultado" v-model="resultado" class="form-control">
-                <option value="" disabled>Selecione após análise...</option>
-                <option
-                  v-for="opcao in RESULTADO_CONGELAMENTO_OPTIONS"
-                  :key="opcao.value"
-                  :value="opcao.value"
-                >
-                  {{ opcao.label }}
-                </option>
-              </select>
+              <label class="form-label" for="diagnostico">Diagnóstico / Achados do Patologista *</label>
+              <textarea
+                id="diagnostico"
+                v-model="diagnostico"
+                rows="3"
+                class="form-control"
+                placeholder="Ex: Carcinoma ductal invasivo presente na amostra..."
+              ></textarea>
+            </div>
+
+            <div class="border-t border-gray-100 pt-4 space-y-2">
+              <label class="form-label font-bold text-gray-700">Conduta Clínica / Ação *</label>
+              <div class="flex flex-col gap-2">
+                <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input type="radio" v-model="conduta" value="livre" class="form-radio text-lab-primary" />
+                  <span>Liberar Resultado Final (Margens Livres / Concluído)</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input type="radio" v-model="conduta" value="comprometida" class="form-radio text-lab-primary" />
+                  <span>Solicitar Novo Fragmento (Margem Comprometida / Requer Ampliação)</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input type="radio" v-model="conduta" value="aguardando" class="form-radio text-lab-primary" />
+                  <span>Resultado Pendente (Apenas salvar registro parcial)</span>
+                </label>
+              </div>
             </div>
 
             <!-- Margem comprometida: campo de observação + novo ciclo -->
-            <div v-if="resultado === 'comprometida'" class="bg-red-50 border border-red-200 p-4 rounded-lg space-y-3">
+            <div v-if="conduta === 'comprometida'" class="bg-red-50 border border-red-200 p-4 rounded-lg space-y-3">
               <div class="flex items-start gap-2">
                 <ExclamationTriangleIcon class="h-5 w-5 shrink-0 text-red-600 mt-0.5" />
                 <p class="text-sm font-semibold text-red-700">
@@ -203,15 +227,21 @@
             </div>
 
             <!-- Margem livre: liberar -->
-            <div v-else-if="resultado === 'livre'" class="space-y-3">
+            <div v-else-if="conduta === 'livre'" class="space-y-3 bg-green-50 border border-green-200 p-4 rounded-lg">
+              <div class="flex items-start gap-2">
+                <CheckCircleIcon class="h-5 w-5 shrink-0 text-green-600 mt-0.5" />
+                <p class="text-sm font-semibold text-green-700">
+                  Resultado finalizado e margens livres de neoplasia.
+                </p>
+              </div>
               <div>
-                <label class="form-label" for="laudoCO">Conclusão / Laudo (opcional)</label>
+                <label class="form-label" for="laudoCO">Conclusão / Observações adicionais (opcional)</label>
                 <textarea
                   id="laudoCO"
                   v-model="observacao"
                   rows="2"
                   class="form-control"
-                  placeholder="Ex: Margens cirúrgicas livres de neoplasia."
+                  placeholder="Ex: Margens cirúrgicas livres de neoplasia no fragmento congelado."
                 ></textarea>
               </div>
               <Button
@@ -226,7 +256,13 @@
             </div>
 
             <!-- Aguardando: só registra sem liberar -->
-            <div v-else-if="resultado === 'aguardando'">
+            <div v-else-if="conduta === 'aguardando'" class="bg-gray-50 border border-gray-200 p-4 rounded-lg space-y-3">
+              <div class="flex items-start gap-2">
+                <InformationCircleIcon class="h-5 w-5 shrink-0 text-gray-600 mt-0.5" />
+                <p class="text-sm font-semibold text-gray-700">
+                  Salvar análise parcial sem encerrar o congelamento.
+                </p>
+              </div>
               <Button
                 variant="default"
                 :disabled="!podeRegistrar"
@@ -294,8 +330,6 @@ import { formatDateShort } from '../utils/date';
 import {
   RESIDENTES_CONGELAMENTO,
   PATOLOGISTAS_CONGELAMENTO,
-  RESULTADO_CONGELAMENTO_OPTIONS,
-  type ResultadoCongelamento,
 } from '../constants/staffMembers';
 import { formatExamCode } from '../utils/examCode';
 
@@ -304,7 +338,8 @@ interface CicloCongelamento {
   residente: string;
   patologista: string;
   quantidadeLaminas: number;
-  resultado: ResultadoCongelamento;
+  resultado: string; // Guarda o diagnóstico em texto livre
+  conduta: 'livre' | 'comprometida' | 'aguardando';
   observacao?: string;
 }
 
@@ -363,13 +398,20 @@ const casoAtual = ref<CasoCongelamento | null>(null);
 const residente = ref('');
 const patologista = ref('');
 const quantidadeLaminas = ref(1);
-const resultado = ref<ResultadoCongelamento | ''>('');
+const diagnostico = ref('');
+const conduta = ref<'livre' | 'comprometida' | 'aguardando' | ''>('');
 const observacao = ref('');
 const liberado = ref(false);
 const hpCorrelato = ref('');
 
 const podeRegistrar = computed(() => {
-  return residente.value !== '' && patologista.value !== '' && quantidadeLaminas.value >= 1 && resultado.value !== '';
+  return (
+    residente.value !== '' &&
+    patologista.value !== '' &&
+    quantidadeLaminas.value >= 1 &&
+    diagnostico.value.trim() !== '' &&
+    conduta.value !== ''
+  );
 });
 
 function buscar() {
@@ -378,7 +420,8 @@ function buscar() {
   residente.value = '';
   patologista.value = '';
   quantidadeLaminas.value = 1;
-  resultado.value = '';
+  diagnostico.value = '';
+  conduta.value = '';
   observacao.value = '';
   hpCorrelato.value = '';
   casoAtual.value = AGHU_CO_MOCK[codigoBusca.value.trim()] ?? null;
@@ -392,11 +435,12 @@ function registrarCiclo() {
     residente: residente.value,
     patologista: patologista.value,
     quantidadeLaminas: quantidadeLaminas.value,
-    resultado: resultado.value as ResultadoCongelamento,
+    resultado: diagnostico.value,
+    conduta: conduta.value as 'comprometida' | 'aguardando',
     observacao: observacao.value || undefined,
   });
 
-  if (resultado.value === 'comprometida') {
+  if (conduta.value === 'comprometida') {
     toast.warning('Margem comprometida registrada. Aguardando novo fragmento do cirurgião.');
   } else {
     toast.info('Registro salvo. Resultado ainda pendente de análise.');
@@ -406,7 +450,8 @@ function registrarCiclo() {
   residente.value = '';
   patologista.value = '';
   quantidadeLaminas.value = 1;
-  resultado.value = '';
+  diagnostico.value = '';
+  conduta.value = '';
   observacao.value = '';
 }
 
@@ -419,7 +464,8 @@ function liberarResultado() {
     residente: residente.value,
     patologista: patologista.value,
     quantidadeLaminas: quantidadeLaminas.value,
-    resultado: 'livre',
+    resultado: diagnostico.value,
+    conduta: 'livre',
     observacao: observacao.value || undefined,
   });
 
