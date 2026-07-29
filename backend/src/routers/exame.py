@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import fluxo_v2_controller as exame_controller
-from ..controllers import fluxo_v2_controller as triagem_controller
+from ..controllers import exame_controller, triagem_controller
 from ..resources.database import get_app_db_session
 from ..schemas.exame import DashboardExameOut, ExameCreate, ExameOut
 from ..schemas.resultados import TriagemResult
@@ -33,12 +32,23 @@ async def registrar_recebimento(
 
 @router.get("/dashboard", response_model=List[DashboardExameOut])
 async def listar_dashboard(
+    etapa: str | None = Query(None, description="Filtra por etapa do processo"),
+    codigo_aghu: str | None = Query(None, description="Filtra por código do AGHU"),
+    codigo_interno: str | None = Query(None, description="Filtra por código interno/solicitação"),
+    nome_paciente: str | None = Query(None, description="Filtra por nome do paciente"),
     limite: int = Query(default=50, ge=1, le=200),
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil()),
 ):
-    """Dashboard: lista exames com nome do paciente e flag de SLA."""
-    return await exame_controller.listar_dashboard(session, limite)
+    """Dashboard: lista exames com nome do paciente e flag de SLA com opção de filtros."""
+    return await exame_controller.listar_dashboard(
+        session,
+        etapa=etapa,
+        codigo_aghu=codigo_aghu,
+        codigo_interno=codigo_interno,
+        nome_paciente=nome_paciente,
+        limite=limite,
+    )
 
 
 @router.get("/dashboard/resumo")

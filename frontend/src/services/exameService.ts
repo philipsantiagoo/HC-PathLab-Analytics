@@ -6,10 +6,18 @@ import { emCache, invalidarCache } from './requestCache';
 export interface DashboardExame {
   id: string;
   solicitacao: string;
+  codigo_aghu?: string | null;
   paciente: string;
   etapa: string;
   data_entrada: string;
   atrasado: boolean;
+}
+
+export interface DashboardFilterParams {
+  etapa?: string;
+  codigo_aghu?: string;
+  codigo_interno?: string;
+  nome_paciente?: string;
 }
 
 export interface ExameCreate {
@@ -180,15 +188,22 @@ export function mapExameDetalhe(d: ExameDetalheApi): ExamCaseDetail {
 
 export const exameService = {
   // --- Dashboard ---
-  async dashboard(): Promise<DashboardExame[]> {
-    return emCache('dashboard:recentes', async () => {
-      const { data } = await api.get('/api/exames/dashboard', { params: { limite: 50 } });
-      return data;
-    });
+  async dashboard(params?: DashboardFilterParams): Promise<DashboardExame[]> {
+    const hasParams = params && Object.values(params).some(val => val !== undefined && val !== '');
+    if (!hasParams) {
+      return emCache('dashboard:recentes', async () => {
+        const { data } = await api.get('/api/exames/dashboard', { params: { limite: 50 } });
+        return data;
+      });
+    }
+    const { data } = await api.get('/api/exames/dashboard', { params: { limite: 50, ...params } });
+    return data;
   },
+
   async resumoDashboard(): Promise<{ por_status: Record<string, number>; atrasados: number; alerta: number }> {
     return emCache('dashboard:resumo', async () => (await api.get('/api/exames/dashboard/resumo')).data);
   },
+
   async detalhe(id: string): Promise<ExameDetalheApi> {
     const { data } = await api.get(`/api/exames/${id}/detalhe`);
     return data;
