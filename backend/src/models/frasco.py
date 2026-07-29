@@ -20,6 +20,8 @@ class Frasco(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     id_exame = Column(String, ForeignKey("exames.id"), nullable=False, index=True)
+    id_amostra_aghu = Column(String, ForeignKey("amostras_aghu.id"), nullable=True, unique=True, index=True)
+    ordinal = Column(Integer, nullable=False, default=1)
     codigo_interno = Column(String, unique=True, index=True, nullable=False)
     qr_code = Column(String, unique=True, index=True, nullable=False)
     status = Column(String, nullable=False, default="Na Recepção")

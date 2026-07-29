@@ -6,7 +6,7 @@ from .cassete import CasseteOut
 from .etiqueta import EtiquetaOut
 from .exame import ExameOut
 from .frasco import FrascoOut
-from .macroscopia import MacroscopiaOut
+from .macroscopia import MacroscopiaOut, ParteMacroscopiaOut
 
 
 class TriagemResult(BaseModel):
@@ -22,5 +22,6 @@ class MacroscopiaResult(BaseModel):
 
     macroscopia: MacroscopiaOut
     frasco: FrascoOut
+    partes: List[ParteMacroscopiaOut]
     cassetes: List[CasseteOut]
     etiquetas: List[EtiquetaOut]

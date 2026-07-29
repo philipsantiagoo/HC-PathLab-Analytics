@@ -14,29 +14,42 @@ Exemplo:
 Formato do número de solicitação (igual ao padrão da equipe e do frontend):
     PREFIXO-NNNN/AA.S
     Ex: HP-0001/26.1  (HP, sequencial 1, ano 2026, semestre 1)
-        IH-0012/26.2  (IHQ, sequencial 12, ano 2026, semestre 2)
+        IHQ-0012/26.2  (IHQ, sequencial 12, ano 2026, semestre 2)
 """
 
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.exame import Exame
 
 # Mapeamento tipo_exame -> prefixo do código (igual a frontend/src/constants/examTypes.ts)
 TIPO_EXAME_PREFIXO: dict[str, str] = {
     "HP": "HP",
-    "IHQ": "IH",
-    "HPDerm": "HD",
+    "IHQ": "IHQ",
     "CCV": "CV",
     "CG": "CG",
-    "RevInt": "RI",
-    "Congela": "CO",
+    "CONG": "CONG",
+}
+
+# Aceita os valores usados pelos seeds legados, mas persiste sempre o código canônico.
+_ALIAS_TIPO_EXAME = {
+    "IH": "IHQ",
+    "HPDERM": "HP",
+    "CONGELA": "CONG",
+    "CO": "CONG",
+    "REVINT": "HP",
 }
 
 TIPOS_EXAME_VALIDOS = set(TIPO_EXAME_PREFIXO.keys())
+
+
+def normalizar_tipo_exame(tipo_exame: str) -> str:
+    codigo = tipo_exame.strip().upper()
+    return _ALIAS_TIPO_EXAME.get(codigo, codigo)
 
 
 def _agora_iso() -> str:
@@ -54,7 +67,8 @@ def formatar_numero_solicitacao(tipo_exame: str, sequencial: int, ano: int, seme
     Monta o código no padrão da equipe: PREFIXO-NNNN/AA.S
     Ex: formatar_numero_solicitacao('HP', 1, 2026, 1) -> 'HP-0001/26.1'
     """
-    prefixo = TIPO_EXAME_PREFIXO.get(tipo_exame, tipo_exame)
+    codigo = normalizar_tipo_exame(tipo_exame)
+    prefixo = TIPO_EXAME_PREFIXO.get(codigo, codigo)
     ano_curto = str(ano)[-2:]
     return f"{prefixo}-{sequencial:04d}/{ano_curto}.{semestre}"
 
@@ -75,21 +89,42 @@ async def gerar_numero_solicitacao(
     dentro da transação; a unicidade final é garantida pela constraint UNIQUE
     em Exame.numero_solicitacao.
     """
+    # Fluxos legados ainda podem chamar esta função; os modelos antigos são
+    # carregados somente aqui para não registrarem tabelas públicas no startup
+    # do fluxo v2.
+    from ..models.catalogo_aghu import TipoExame
+    from ..models.contador_numeracao import ContadorNumeracaoExame
+
     if ano is None:
         ano = datetime.now(timezone.utc).year
     if semestre is None:
         semestre = semestre_de()
 
-    stmt = (
-        select(func.max(Exame.sequencial))
-        .where(
-            Exame.tipo_exame == tipo_exame,
-            Exame.ano == ano,
-            Exame.semestre == semestre,
-        )
-    )
-    ultimo = (await session.execute(stmt)).scalar_one_or_none()
-    proximo = (ultimo or 0) + 1
+    tipo_exame = normalizar_tipo_exame(tipo_exame)
+    tipo = (
+        await session.execute(select(TipoExame).where(TipoExame.codigo == tipo_exame))
+    ).scalar_one_or_none()
+    if tipo is None:
+        raise ValueError(f"Tipo de exame não configurado: {tipo_exame}")
+
+    dialecto = session.bind.dialect.name if session.bind else ""
+    if dialecto == "postgresql":
+        inserir = postgres_insert
+    elif dialecto == "sqlite":
+        inserir = sqlite_insert
+    else:
+        raise ValueError(f"Banco não suportado para contador atômico: {dialecto}")
+
+    # UPSERT com RETURNING: uma única operação atômica, inclusive quando o
+    # contador ainda não existe. Evita a corrida do antigo MAX(sequencial)+1.
+    stmt = inserir(ContadorNumeracaoExame).values(
+        id=str(uuid.uuid4()), id_tipo_exame=tipo.id, ano=ano, semestre=semestre,
+        ultimo_sequencial=1,
+    ).on_conflict_do_update(
+        index_elements=["id_tipo_exame", "ano", "semestre"],
+        set_={"ultimo_sequencial": ContadorNumeracaoExame.ultimo_sequencial + 1},
+    ).returning(ContadorNumeracaoExame.ultimo_sequencial)
+    proximo = (await session.execute(stmt)).scalar_one()
 
     numero = formatar_numero_solicitacao(tipo_exame, proximo, ano, semestre)
     return numero, proximo, ano, semestre
@@ -125,3 +160,20 @@ def letra_fragmento(indice: int) -> str:
         indice, resto = divmod(indice - 1, 26)
         letras = chr(ord("A") + resto) + letras
     return letras
+
+
+def identificadores_fragmentos(letra_parte: str, quantidade: int) -> list[str]:
+    """
+    Gera os identificadores dos fragmentos de uma parte.
+
+    Uma parte com um único fragmento mantém apenas a letra (A). Quando há
+    mais de um fragmento, eles recebem numeração sequencial (A1, A2, ...).
+    """
+    letra = letra_parte.strip().upper()
+    if not letra:
+        raise ValueError("A letra da parte é obrigatória.")
+    if quantidade < 1:
+        raise ValueError("A quantidade de fragmentos precisa ser positiva.")
+    if quantidade == 1:
+        return [letra]
+    return [f"{letra}{numero}" for numero in range(1, quantidade + 1)]

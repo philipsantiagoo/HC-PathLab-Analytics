@@ -10,7 +10,7 @@ class ExameCreate(BaseModel):
     """Registro de recebimento de peça na triagem."""
 
     paciente: PacienteInput
-    tipo_exame: str = "HP"          # HP | IHQ | HPDerm | CCV | CG | RevInt | Congela
+    tipo_exame: str = "HP"          # HP | CG | CCV | IH | CO
     tipo_peca: Optional[str] = None
     topografia: Optional[str] = None
     numero_exame_aghu: Optional[str] = None

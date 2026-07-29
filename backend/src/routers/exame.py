@@ -31,12 +31,12 @@ async def registrar_recebimento(
 
 
 @router.get("/dashboard", response_model=List[DashboardExameOut])
-
 async def listar_dashboard(
     etapa: str | None = Query(None, description="Filtra por etapa do processo"),
     codigo_aghu: str | None = Query(None, description="Filtra por código do AGHU"),
     codigo_interno: str | None = Query(None, description="Filtra por código interno/solicitação"),
     nome_paciente: str | None = Query(None, description="Filtra por nome do paciente"),
+    limite: int = Query(default=50, ge=1, le=200),
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil()),
 ):
@@ -47,8 +47,16 @@ async def listar_dashboard(
         codigo_aghu=codigo_aghu,
         codigo_interno=codigo_interno,
         nome_paciente=nome_paciente,
+        limite=limite,
     )
 
+
+@router.get("/dashboard/resumo")
+async def resumo_dashboard(
+    session: AsyncSession = Depends(get_app_db_session),
+    current_user: dict = Depends(require_perfil()),
+):
+    return await exame_controller.resumo_dashboard(session)
 
 
 @router.get("", response_model=List[ExameOut])

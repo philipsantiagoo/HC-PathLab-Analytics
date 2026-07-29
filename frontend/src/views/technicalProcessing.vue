@@ -78,6 +78,31 @@
               </div>
             </div>
 
+            <!-- NOVO: dados da Recepção -->
+            <div v-if="casoAtual.recepcao" class="border-t border-gray-100 pt-4">
+              <p class="text-xs font-bold text-gray-500 uppercase mb-2">Recepção</p>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <p class="text-[10px] font-semibold text-gray-400 uppercase">Recebido em</p>
+                  <p class="text-gray-700">{{ formatDateShort(casoAtual.recepcao.dataEntrada) }}</p>
+                </div>
+                <div>
+                  <p class="text-[10px] font-semibold text-gray-400 uppercase">Qtd. frascos</p>
+                  <p class="text-gray-700">{{ casoAtual.recepcao.quantidadeFrascos }}</p>
+                </div>
+              </div>
+              <div class="mt-2">
+                <p class="text-[10px] font-semibold text-gray-400 uppercase">Material confirmado</p>
+                <p class="text-gray-700">{{ casoAtual.recepcao.descricaoFisica }}</p>
+              </div>
+            </div>
+
+            <!-- NOVO: descrição macroscópica -->
+            <div v-if="casoAtual.macroscopia" class="border-t border-gray-100 pt-4">
+              <p class="text-xs font-bold text-gray-500 uppercase mb-2">Macroscopia</p>
+              <p class="text-gray-600 text-xs leading-relaxed">{{ casoAtual.macroscopia.descricaoMacroscopica }}</p>
+            </div>
+
             <div class="border-t border-gray-100 pt-4">
               <p class="text-xs font-bold text-gray-500 uppercase mb-3">
                 Cassetes do caso ({{ cassetesProcessados.length }} de {{ casoAtual.macroscopia!.cassetes.length }} incluídos)
@@ -229,6 +254,7 @@ import { useAuthStore } from '../stores/auth';
 import { exameService } from '../services/exameService';
 import { RESPONSAVEIS_PROCESSAMENTO } from '../constants/staffMembers';
 import type { ExamCaseDetail, BlocoInfo, LaminaInfo } from '../types/exam';
+import { formatDateShort } from '../utils/date';
 
 const COLORACAO_ROTINA = 'HE (Hematoxilina-Eosina) - Rotina';
 

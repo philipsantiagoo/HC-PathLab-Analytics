@@ -38,13 +38,14 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-# Get the SQLite DSN from environment variables
-sqlite_dsn = os.getenv("SQLITE_DSN")
-if not sqlite_dsn:
-    raise ValueError("SQLITE_DSN not found in environment variables.")
+# APP_DATABASE_DSN recebe o PostgreSQL/Supabase em produção; SQLite continua
+# como fallback para desenvolvimento local.
+app_dsn = os.getenv("APP_DATABASE_DSN") or os.getenv("SQLITE_DSN")
+if not app_dsn:
+    raise ValueError("APP_DATABASE_DSN or SQLITE_DSN not found in environment variables.")
 
 # Set the sqlalchemy.url in the config to the SQLite DSN
-config.set_main_option("sqlalchemy.url", sqlite_dsn)
+config.set_main_option("sqlalchemy.url", app_dsn)
 
 
 def run_migrations_offline() -> None:

@@ -1,6 +1,7 @@
 import api from './api';
 import type { ExamCaseDetail, AghuData } from '../types/exam';
 import type { ExamType } from '../constants/examTypes';
+import { emCache, invalidarCache } from './requestCache';
 
 export interface DashboardExame {
   id: string;
@@ -18,7 +19,6 @@ export interface DashboardFilterParams {
   codigo_interno?: string;
   nome_paciente?: string;
 }
-
 
 export interface ExameCreate {
   paciente: { cpf?: string; cns?: string; nome: string; data_nascimento?: string; origem?: string };
@@ -50,8 +50,11 @@ export interface FrascoDetalhe {
 export interface CasseteOut {
   id: string;
   id_frasco: string;
+  id_parte_macroscopia?: string | null;
   letra_fragmento: string;
   qr_code: string;
+  descricao_estrutura?: string | null;
+  observacoes_macroscopia?: string | null;
   coloracao_padrao: string;
   status: string;
 }
@@ -59,6 +62,14 @@ export interface CasseteOut {
 export interface MacroscopiaResult {
   macroscopia: { id: string; id_frasco: string; descricao: string; numero_cassetes: number };
   frasco: { id: string; status: string };
+  partes: {
+    id: string;
+    id_macroscopia: string;
+    ordinal: number;
+    letra_identificacao: string;
+    descricao_estrutura: string;
+    quantidade_fragmentos: number;
+  }[];
   cassetes: CasseteOut[];
   etiquetas: { tipo: string; numero_solicitacao: string; codigo: string; qr_code: string }[];
 }
@@ -178,8 +189,19 @@ export function mapExameDetalhe(d: ExameDetalheApi): ExamCaseDetail {
 export const exameService = {
   // --- Dashboard ---
   async dashboard(params?: DashboardFilterParams): Promise<DashboardExame[]> {
-    const { data } = await api.get('/api/exames/dashboard', { params });
+    const hasParams = params && Object.values(params).some(val => val !== undefined && val !== '');
+    if (!hasParams) {
+      return emCache('dashboard:recentes', async () => {
+        const { data } = await api.get('/api/exames/dashboard', { params: { limite: 50 } });
+        return data;
+      });
+    }
+    const { data } = await api.get('/api/exames/dashboard', { params: { limite: 50, ...params } });
     return data;
+  },
+
+  async resumoDashboard(): Promise<{ por_status: Record<string, number>; atrasados: number; alerta: number }> {
+    return emCache('dashboard:resumo', async () => (await api.get('/api/exames/dashboard/resumo')).data);
   },
 
   async detalhe(id: string): Promise<ExameDetalheApi> {
@@ -218,12 +240,23 @@ export const exameService = {
     const { data } = await api.get('/api/frascos/buscar', { params });
     return data;
   },
+  async pendenciasMacroscopia(): Promise<FrascoDetalhe[]> {
+    return emCache('fila:macroscopia', async () => (await api.get('/api/macroscopia/pendencias', { params: { limite: 50 } })).data);
+  },
   async iniciarMacroscopia(frascoId: string) {
     const { data } = await api.post(`/api/frascos/${frascoId}/iniciar-macroscopia`, {});
     return data;
   },
-  async registrarMacroscopia(dados: { id_frasco: string; descricao: string; numero_cassetes: number }): Promise<MacroscopiaResult> {
+  async registrarMacroscopia(dados: {
+    id_frasco: string;
+    descricao: string;
+    partes: {
+      estrutura: string;
+      fragmentos: { coloracao: string; observacoes?: string }[];
+    }[];
+  }): Promise<MacroscopiaResult> {
     const { data } = await api.post('/api/macroscopia', dados);
+    invalidarCache('fila:macroscopia', 'dashboard:recentes', 'dashboard:resumo');
     return data;
   },
 
