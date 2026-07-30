@@ -117,6 +117,10 @@ async def importar_csv_patologia(
                 casos_existentes[candidato.chave] = caso
 
             exames_por_tipo: dict[str, ExamePatologia] = {}
+            # O número da solicitação AGHU é o que o usuário procura no
+            # dashboard. Ele chega por linha (amostra), então acumulamos os
+            # distintos do exame aqui e desnormalizamos abaixo.
+            codigos_aghu_por_tipo: dict[str, list[str]] = {}
             for linha in candidato.linhas:
                 exame = exames_por_tipo.get(linha.tipo_exame)
                 if exame is None:
@@ -128,6 +132,19 @@ async def importar_csv_patologia(
                     session.add(exame)
                     novos_exames.append(exame)
                     exames_por_tipo[linha.tipo_exame] = exame
+                    codigos_aghu_por_tipo[linha.tipo_exame] = []
+
+                codigos = codigos_aghu_por_tipo[linha.tipo_exame]
+                if linha.codigo_solicitacao and linha.codigo_solicitacao not in codigos:
+                    codigos.append(linha.codigo_solicitacao)
+
+            # O agrupamento por proximidade pode juntar solicitações
+            # consecutivas do mesmo paciente num único exame; nesse caso
+            # guardamos as duas. O filtro do dashboard usa ILIKE, então buscar
+            # por qualquer uma delas continua encontrando o exame.
+            for tipo_exame, exame in exames_por_tipo.items():
+                codigos = sorted(codigos_aghu_por_tipo[tipo_exame])
+                exame.numero_exame_aghu = ", ".join(codigos)[:50] or None
 
             casos_para_linhas.append((candidato, caso, exames_por_tipo, chave_paciente))
 
