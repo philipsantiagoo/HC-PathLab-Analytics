@@ -39,6 +39,7 @@ class DashboardExameOut(BaseModel):
     etapa: str              # status do exame (bate com ExamStatus do frontend)
     data_entrada: datetime  # data_recebimento — frontend calcula SLA e tempoNaEtapa a partir daqui
     atrasado: bool          # SLA >= 20 dias (calculado pelo backend para facilitar)
+    codigo_aghu: Optional[str] = None  # numero_exame_aghu, exibido e filtrável
     total_frascos: int = 1  # o dashboard é por exame; os frascos andam juntos
     # Quando alguém assumiu o exame na macroscopia. É o "início do trabalho"
     # que o dashboard tentava exibir lendo um campo que nunca existiu.

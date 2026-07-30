@@ -7,6 +7,7 @@ import { parseDataApi } from '../utils/date';
 export interface DashboardExame {
   id: string;
   solicitacao: string;
+  codigo_aghu?: string | null;
   paciente: string;
   etapa: string;
   data_entrada: string;
@@ -90,6 +91,13 @@ export interface UsuarioCandidato {
   email?: string | null;
   departamento?: string | null;
   origem: 'perfil' | 'historico';
+}
+
+export interface DashboardFilterParams {
+  etapa?: string;
+  codigo_aghu?: string;
+  codigo_interno?: string;
+  nome_paciente?: string;
 }
 
 export interface ExameCreate {
@@ -261,17 +269,22 @@ export function mapExameDetalhe(d: ExameDetalheApi): ExamCaseDetail {
 
 export const exameService = {
   // --- Dashboard ---
-  // Paginado no servidor. Não passa por emCache de propósito: cachear lista
-  // paginada por uma chave só faria a página 2 servir as linhas da 1, e uma
-  // chave por página tornaria a invalidação impossível.
-  async dashboardPaginado(params: { pagina: number; por_pagina: number; etapa?: string; busca?: string; signal?: AbortSignal }): Promise<Paginado<DashboardExame>> {
+  // Paginado no servidor, com os filtros da barra de pesquisa. Não passa por
+  // emCache de propósito: cachear lista paginada por uma chave só faria a
+  // página 2 servir as linhas da 1, e uma chave por página + filtro tornaria a
+  // invalidação impossível.
+  async dashboardPaginado(
+    params: { pagina: number; por_pagina: number; busca?: string; signal?: AbortSignal } & DashboardFilterParams,
+  ): Promise<Paginado<DashboardExame>> {
     const { signal, ...query } = params;
     const { data } = await api.get('/api/exames/dashboard/paginado', { params: query, signal });
     return data;
   },
+
   async resumoDashboard(): Promise<{ por_status: Record<string, number>; atrasados: number; alerta: number }> {
     return emCache('dashboard:resumo', async () => (await api.get('/api/exames/dashboard/resumo')).data);
   },
+
   async detalhe(id: string): Promise<ExameDetalheApi> {
     const { data } = await api.get(`/api/exames/${id}/detalhe`);
     return data;

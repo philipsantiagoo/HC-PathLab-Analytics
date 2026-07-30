@@ -194,6 +194,7 @@ def _linha_dashboard(exame, paciente_nome, total_frascos, agora) -> dict:
     return {
         "id": exame.id,
         "solicitacao": exame.numero_local or "PENDENTE",
+        "codigo_aghu": exame.numero_exame_aghu,
         "paciente": paciente_nome,
         "etapa": exame.status,
         "data_entrada": entrada,
@@ -204,12 +205,51 @@ def _linha_dashboard(exame, paciente_nome, total_frascos, agora) -> dict:
     }
 
 
-async def listar_dashboard(session: AsyncSession, limite: int | None = None):
+def _clausulas_dashboard(
+    etapa: Optional[str] = None,
+    codigo_aghu: Optional[str] = None,
+    codigo_interno: Optional[str] = None,
+    nome_paciente: Optional[str] = None,
+    busca: Optional[str] = None,
+) -> list:
+    """Filtros do dashboard, compartilhados entre a página e o COUNT.
+
+    ``busca`` é o campo único (usado pela fila); os demais são os filtros
+    dedicados da barra de pesquisa do dashboard. Combinam-se com AND.
+    """
+    clausulas = []
+    if etapa:
+        clausulas.append(ExamePatologia.status == etapa)
+    if codigo_aghu:
+        clausulas.append(ExamePatologia.numero_exame_aghu.ilike(f"%{codigo_aghu.strip()}%"))
+    if codigo_interno:
+        clausulas.append(ExamePatologia.numero_local.ilike(f"%{codigo_interno.strip()}%"))
+    if nome_paciente:
+        clausulas.append(PacientePatologia.nome.ilike(f"%{nome_paciente.strip()}%"))
+    if busca:
+        alvo = f"%{busca.strip()}%"
+        clausulas.append(or_(
+            ExamePatologia.numero_local.ilike(alvo),
+            ExamePatologia.numero_exame_aghu.ilike(alvo),
+            PacientePatologia.nome.ilike(alvo),
+        ))
+    return clausulas
+
+
+async def listar_dashboard(
+    session: AsyncSession,
+    limite: int | None = None,
+    etapa: Optional[str] = None,
+    codigo_aghu: Optional[str] = None,
+    codigo_interno: Optional[str] = None,
+    nome_paciente: Optional[str] = None,
+):
     """Rota antiga, mantida por compatibilidade. Prefira ``listar_dashboard_paginado``."""
     stmt = (
         select(ExamePatologia, PacientePatologia.nome, _TOTAL_FRASCOS)
         .join(CasoPatologia, ExamePatologia.id_caso == CasoPatologia.id)
         .join(PacientePatologia, CasoPatologia.id_paciente == PacientePatologia.id)
+        .where(*_clausulas_dashboard(etapa, codigo_aghu, codigo_interno, nome_paciente))
         .order_by(ExamePatologia.criado_em.desc(), ExamePatologia.id.desc())
     )
     if limite is not None:
@@ -225,18 +265,12 @@ async def listar_dashboard_paginado(
     busca: Optional[str] = None,
     pagina: int = 1,
     por_pagina: int = 25,
+    codigo_aghu: Optional[str] = None,
+    codigo_interno: Optional[str] = None,
+    nome_paciente: Optional[str] = None,
 ) -> dict:
-    """Dashboard por exame, paginado no servidor."""
-    clausulas = []
-    if etapa:
-        clausulas.append(ExamePatologia.status == etapa)
-    if busca:
-        alvo = f"%{busca.strip()}%"
-        clausulas.append(or_(
-            ExamePatologia.numero_local.ilike(alvo),
-            ExamePatologia.numero_exame_aghu.ilike(alvo),
-            PacientePatologia.nome.ilike(alvo),
-        ))
+    """Dashboard por exame, paginado no servidor, com os filtros da barra de pesquisa."""
+    clausulas = _clausulas_dashboard(etapa, codigo_aghu, codigo_interno, nome_paciente, busca)
 
     base = (
         select(ExamePatologia, PacientePatologia.nome, _TOTAL_FRASCOS)

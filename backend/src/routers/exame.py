@@ -34,25 +34,48 @@ async def registrar_recebimento(
 
 @router.get("/dashboard/paginado", response_model=PaginaResposta[DashboardExameOut])
 async def listar_dashboard_paginado(
-    etapa: str | None = Query(default=None, max_length=40),
-    busca: str | None = Query(default=None, max_length=120),
+    etapa: str | None = Query(None, max_length=40, description="Filtra por etapa do processo"),
+    codigo_aghu: str | None = Query(None, max_length=120, description="Filtra por código do AGHU"),
+    codigo_interno: str | None = Query(None, max_length=120, description="Filtra por código interno/solicitação"),
+    nome_paciente: str | None = Query(None, max_length=120, description="Filtra por nome do paciente"),
+    busca: str | None = Query(None, max_length=120, description="Busca única em código, AGHU ou paciente"),
     pagina: int = Query(default=1, ge=1),
     por_pagina: int = Query(default=POR_PAGINA_PADRAO, ge=1, le=POR_PAGINA_MAXIMO),
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil()),
 ):
-    """Dashboard por exame, paginado no servidor."""
-    return await exame_controller.listar_dashboard_paginado(session, etapa, busca, pagina, por_pagina)
+    """Dashboard por exame, paginado no servidor, com os filtros da barra de pesquisa."""
+    return await exame_controller.listar_dashboard_paginado(
+        session,
+        etapa=etapa,
+        busca=busca,
+        pagina=pagina,
+        por_pagina=por_pagina,
+        codigo_aghu=codigo_aghu,
+        codigo_interno=codigo_interno,
+        nome_paciente=nome_paciente,
+    )
 
 
 @router.get("/dashboard", response_model=List[DashboardExameOut], deprecated=True)
 async def listar_dashboard(
+    etapa: str | None = Query(None, description="Filtra por etapa do processo"),
+    codigo_aghu: str | None = Query(None, description="Filtra por código do AGHU"),
+    codigo_interno: str | None = Query(None, description="Filtra por código interno/solicitação"),
+    nome_paciente: str | None = Query(None, description="Filtra por nome do paciente"),
     limite: int = Query(default=200, ge=1, le=1000),
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil()),
 ):
     """Lista não paginada. Substituída por ``GET /api/exames/dashboard/paginado``."""
-    return await exame_controller.listar_dashboard(session, limite)
+    return await exame_controller.listar_dashboard(
+        session,
+        limite=limite,
+        etapa=etapa,
+        codigo_aghu=codigo_aghu,
+        codigo_interno=codigo_interno,
+        nome_paciente=nome_paciente,
+    )
 
 
 @router.get("/dashboard/resumo")

@@ -28,21 +28,103 @@
       </div>
     </div>
 
+    <!-- Cards de status: clicar filtra a tabela por etapa -->
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-4">
-      <Card v-for="card in statusCards" :key="card.label">
-        <p class="text-sm text-gray-500">{{ card.label }}</p>
-        <p class="text-3xl font-bold text-lab-text mt-1">{{ card.count }}</p>
-      </Card>
+      <div
+        v-for="card in statusCards"
+        :key="card.label"
+        @click="selecionarEtapaCard(card.label)"
+        class="cursor-pointer transition-all duration-200"
+      >
+        <Card
+          :class="[
+            'h-full border hover:shadow-md transition-all',
+            filtroEtapa === card.label ? 'border-[#173f42] ring-2 ring-[#173f42]/20 bg-teal-50/40' : 'border-gray-200'
+          ]"
+        >
+          <p class="text-xs font-medium text-gray-500 truncate" :title="card.label">{{ card.label }}</p>
+          <p class="text-2xl font-bold text-lab-text mt-1">{{ card.count }}</p>
+        </Card>
+      </div>
     </div>
 
     <Card>
       <template #header>
-        <h2 class="text-lg font-bold text-lab-text">Exames</h2>
-        <p class="text-sm text-gray-500">
-          Uma linha por exame — os frascos de um mesmo exame andam juntos.
-          Início do trabalho: quando alguém assumiu o exame na macroscopia.
-          Tempo total: relógio desde a entrada no sistema (meta: 20 dias).
-        </p>
+        <div class="space-y-4">
+          <div>
+            <h2 class="text-lg font-bold text-lab-text">Exames</h2>
+            <p class="text-sm text-gray-500">
+              Uma linha por exame — os frascos de um mesmo exame andam juntos.
+              Início do trabalho: quando alguém assumiu o exame na macroscopia.
+              Tempo total: relógio desde a entrada no sistema (meta: 20 dias).
+            </p>
+          </div>
+
+          <div class="p-4 bg-gray-50/80 rounded-lg border border-gray-200/80 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-sm font-semibold text-lab-text">
+                <FunnelIcon class="h-4 w-4 text-[#173f42]" />
+                <span>Filtros de Pesquisa</span>
+              </div>
+              <button
+                v-if="temFiltroAtivo"
+                @click="limparFiltros"
+                class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 transition-colors"
+              >
+                <XMarkIcon class="h-3.5 w-3.5" />
+                Limpar filtros
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Nome do Paciente</label>
+                <div class="relative">
+                  <input
+                    v-model="filtroNomePaciente"
+                    type="text"
+                    placeholder="Buscar por nome..."
+                    class="w-full text-xs pl-8 pr-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#173f42] focus:border-[#173f42]"
+                  />
+                  <MagnifyingGlassIcon class="h-4 w-4 text-gray-400 absolute left-2.5 top-2.5" />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Código Interno</label>
+                <input
+                  v-model="filtroCodigoInterno"
+                  type="text"
+                  placeholder="Ex: HP-0001/26.1"
+                  class="w-full text-xs px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#173f42] focus:border-[#173f42]"
+                />
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Código AGHU</label>
+                <input
+                  v-model="filtroCodigoAghu"
+                  type="text"
+                  placeholder="Ex: 123456"
+                  class="w-full text-xs px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#173f42] focus:border-[#173f42]"
+                />
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Etapa do Processo</label>
+                <select
+                  v-model="filtroEtapa"
+                  class="w-full text-xs px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#173f42] focus:border-[#173f42]"
+                >
+                  <option value="">Todas as etapas</option>
+                  <option v-for="status in EXAM_STATUSES" :key="status" :value="status">
+                    {{ status }}
+                  </option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
       </template>
 
       <DataTable
@@ -54,6 +136,10 @@
         :page-size="POR_PAGINA"
         v-model:page="pagina"
       >
+        <template #item-codigoAghu="{ item }">
+          <span class="text-xs font-mono text-gray-600">{{ item.codigoAghu }}</span>
+        </template>
+
         <template #item-etapa="{ item }">
           <Badge :color="STATUS_COLOR[item.etapa]">{{ item.etapa }}</Badge>
         </template>
@@ -95,8 +181,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
-import { ExclamationTriangleIcon, ClockIcon } from '@heroicons/vue/24/outline';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import {
+  ExclamationTriangleIcon,
+  ClockIcon,
+  FunnelIcon,
+  MagnifyingGlassIcon,
+  XMarkIcon,
+} from '@heroicons/vue/24/outline';
 import Card from '../components/card/card.vue';
 import DataTable from '../components/dataTable/dataTable.vue';
 import Badge from '../components/badge/badge.vue';
@@ -104,7 +196,7 @@ import ExamDetailsModal from '../components/examDetailsModal/examDetailsModal.vu
 import { STATUS_COLOR, EXAM_STATUSES } from '../constants/statuses';
 import { diasDesde, getSlaStatus, formatTempoTotal, type SlaStatus } from '../utils/sla';
 import type { ExamCaseDetail } from '../types/exam';
-import { exameService, mapExameDetalhe } from '../services/exameService';
+import { exameService, mapExameDetalhe, type DashboardFilterParams } from '../services/exameService';
 import { parseDataApi } from '../utils/date';
 
 const POR_PAGINA = 10;
@@ -114,6 +206,7 @@ const POR_PAGINA = 10;
 // etapa, que não existe hoje.
 const headers = [
   { text: 'Solicitação', value: 'solicitacao' },
+  { text: 'Código AGHU', value: 'codigoAghu' },
   { text: 'Paciente', value: 'paciente' },
   { text: 'Etapa', value: 'etapa' },
   { text: 'Frascos', value: 'frascos', align: 'center' as const },
@@ -126,6 +219,30 @@ const TEMPO_TOTAL_CLASS: Record<SlaStatus, string> = {
   alerta: 'text-amber-600 font-medium',
   atrasado: 'text-red-600 font-medium',
 };
+
+// --- Filtros ---
+const filtroNomePaciente = ref('');
+const filtroCodigoInterno = ref('');
+const filtroCodigoAghu = ref('');
+const filtroEtapa = ref('');
+
+const temFiltroAtivo = computed(() =>
+  filtroNomePaciente.value.trim() !== '' ||
+  filtroCodigoInterno.value.trim() !== '' ||
+  filtroCodigoAghu.value.trim() !== '' ||
+  filtroEtapa.value !== ''
+);
+
+function limparFiltros() {
+  filtroNomePaciente.value = '';
+  filtroCodigoInterno.value = '';
+  filtroCodigoAghu.value = '';
+  filtroEtapa.value = '';
+}
+
+function selecionarEtapaCard(etapa: string) {
+  filtroEtapa.value = filtroEtapa.value === etapa ? '' : etapa;
+}
 
 const modalAberto = ref(false);
 const detalheSelecionado = ref<ExamCaseDetail | null>(null);
@@ -143,6 +260,7 @@ async function verDetalhes(item: any) {
 interface ExameDashboardItem {
   id: string;
   solicitacao: string;
+  codigoAghu: string;
   paciente: string;
   etapa: string;
   atrasado: boolean;
@@ -159,7 +277,8 @@ const carregando = ref(true);
 const pagina = ref(1);
 const total = ref(0);
 
-// Trocas rápidas de página produzem respostas fora de ordem.
+// Filtro digitado e troca de página geram respostas fora de ordem; a anterior
+// é abortada para a última resposta não sobrescrever a busca atual.
 let controlador: AbortController | null = null;
 
 async function carregarPagina() {
@@ -167,15 +286,23 @@ async function carregarPagina() {
   controlador = new AbortController();
   carregando.value = true;
   try {
+    const filtros: DashboardFilterParams = {};
+    if (filtroEtapa.value) filtros.etapa = filtroEtapa.value;
+    if (filtroCodigoAghu.value.trim()) filtros.codigo_aghu = filtroCodigoAghu.value.trim();
+    if (filtroCodigoInterno.value.trim()) filtros.codigo_interno = filtroCodigoInterno.value.trim();
+    if (filtroNomePaciente.value.trim()) filtros.nome_paciente = filtroNomePaciente.value.trim();
+
     const dados = await exameService.dashboardPaginado({
       pagina: pagina.value,
       por_pagina: POR_PAGINA,
       signal: controlador.signal,
+      ...filtros,
     });
     total.value = dados.total;
     exames.value = dados.itens.map(e => ({
       id: e.id,
       solicitacao: e.solicitacao,
+      codigoAghu: e.codigo_aghu || '—',
       paciente: e.paciente,
       etapa: e.etapa,
       atrasado: e.atrasado,
@@ -191,13 +318,34 @@ async function carregarPagina() {
   }
 }
 
+// Debounce só nos campos de texto; a etapa vem de select/card e é imediata.
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch([filtroNomePaciente, filtroCodigoInterno, filtroCodigoAghu], () => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    pagina.value = 1;   // filtro novo, resultado novo: volta para a primeira página
+    carregarPagina();
+  }, 300);
+});
+
+watch(filtroEtapa, () => {
+  pagina.value = 1;
+  carregarPagina();
+});
+
+watch(pagina, carregarPagina);
+
 onMounted(async () => {
   // O resumo é agregado no banco e cobre a base inteira; só a lista pagina.
   exameService.resumoDashboard().then(d => { resumo.value = d; }).catch(() => {});
   await carregarPagina();
 });
 
-watch(pagina, carregarPagina);
+onUnmounted(() => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  controlador?.abort();
+});
 
 const examesComSla = computed(() => {
   return exames.value.map(exame => {
