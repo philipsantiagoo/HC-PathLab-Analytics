@@ -29,48 +29,32 @@ A troca entre os dois provedores é feita sem alterar nenhum código — apenas 
 
 ---
 
-## Dados próprios — App DB (SQLite/PostgreSQL, CRUD completo)
+## Dados próprios — App DB (PostgreSQL, schema `pathlab`)
 
-As entidades que o sistema possui (exames, frascos, cassetes, etc.) são acessadas via SQLAlchemy ORM e sessão do banco da aplicação.
+As entidades do sistema (exames, amostras, cassetes, blocos, lâminas) são acessadas
+diretamente pelo `fluxo_controller`, via SQLAlchemy ORM e a sessão do banco da aplicação.
 
-Cada entidade tem seu próprio repository em `implementations/`.
+A camada de repositories por entidade foi removida: existia para o schema `public`
+legado, cujas tabelas foram descartadas na migration `h6f7g8h9i0j1`. Manter uma
+indireção por entidade não pagava o custo num fluxo em que quase toda consulta
+cruza exame + amostra + paciente + tipo na mesma query.
 
-### Repositories disponíveis
-
-| Arquivo | Entidade | Operações principais |
-|---|---|---|
-| `exame_repository.py` | Exame | adicionar, obter, listar, dashboard |
-| `frasco_repository.py` | Frasco | CRUD + fila de macroscopia + busca por solicitação/código |
-| `cassete_repository.py` | Cassete | CRUD + fila de processamento + listagem por frasco/lote |
-| `macroscopia_repository.py` | Macroscopia | adicionar |
-| `lote_repository.py` | LoteProcessamento | adicionar, obter, listar |
-| `bloco_repository.py` | BlocoParafina | CRUD + fila de corte + busca por código |
-| `lamina_repository.py` | Lamina | adicionar, listar por bloco, contar por bloco |
-| `historico_repository.py` | HistoricoMovimentacao | adicionar, listar com filtros |
-| `paciente_local_repository.py` | PacienteLocal | adicionar, obter, buscar por CPF/CNS |
-
-### Padrão de queries complexas
-
-Além do CRUD básico, alguns repositories expõem queries enriquecidas para as telas operacionais — por exemplo, a fila de macroscopia retorna os dados do frasco já com nome do paciente e número de solicitação, evitando múltiplas consultas no controller:
-
-```python
-# frasco_repository.py
-async def listar_pendencias_macroscopia(self) -> List[FrascoDetalhe]:
-    # JOIN frasco + exame + paciente, filtra por status, ordena por FIFO
-```
+Os providers de paciente (`paciente_csv_provider`, `paciente_postgres_provider`)
+permanecem, porque ali a indireção tem motivo real: a fonte de dados troca por
+variável de ambiente.
 
 ---
 
-## Como os repositories recebem a sessão
+## Como o controller recebe a sessão
 
-A sessão do banco é injetada via FastAPI `Depends` no router e repassada ao controller, que a passa ao repository. Isso garante que toda a operação de negócio aconteça dentro da mesma transação.
+A sessão do banco é injetada via FastAPI `Depends` no router e repassada ao controller. Isso garante que toda a operação de negócio aconteça dentro da mesma transação.
 
 ```python
-# Router → Controller → Repository (mesma sessão)
+# Router → Controller (mesma sessão)
 session: AsyncSession = Depends(get_app_db_session)
 ```
 
-O commit é sempre feito no controller após todas as operações, nunca dentro do repository. Isso dá ao controller o controle sobre os limites da transação.
+O commit é sempre feito no controller, ao fim de todas as operações.
 
 ---
 

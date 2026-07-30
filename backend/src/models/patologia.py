@@ -1,24 +1,26 @@
 """Modelo canônico da reconstrução de patologia.
 
-As tabelas ficam no schema ``pathlab_v2`` durante a homologação. Isso mantém o
-``public`` atual íntegro até que os totais, agrupamentos e pendências sejam
-aprovados pela equipe.
+As tabelas ficam no schema ``pathlab``. O schema ``public`` guarda apenas
+identidade/RBAC, catálogos AGHU e os dados de integração.
 """
 
 import uuid
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, JSON, String,
+    Text, UniqueConstraint, text,
+)
 from sqlalchemy.sql import func
 
 from ..resources.database import Base
 
 
-SCHEMA_PATOLOGIA_V2 = "pathlab_v2"
+SCHEMA_PATOLOGIA = "pathlab"
 
 
 class TipoExamePatologia(Base):
     __tablename__ = "tipos_exame"
-    __table_args__ = {"schema": SCHEMA_PATOLOGIA_V2}
+    __table_args__ = {"schema": SCHEMA_PATOLOGIA}
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     codigo = Column(String(8), nullable=False, unique=True)
@@ -31,7 +33,7 @@ class TipoExamePatologia(Base):
 
 class PacientePatologia(Base):
     __tablename__ = "pacientes"
-    __table_args__ = {"schema": SCHEMA_PATOLOGIA_V2}
+    __table_args__ = {"schema": SCHEMA_PATOLOGIA}
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     chave_origem = Column(String(128), nullable=False, unique=True)
@@ -48,7 +50,7 @@ class PacientePatologia(Base):
 
 class ImportacaoPatologia(Base):
     __tablename__ = "importacoes"
-    __table_args__ = {"schema": SCHEMA_PATOLOGIA_V2}
+    __table_args__ = {"schema": SCHEMA_PATOLOGIA}
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     arquivo_origem = Column(String(500), nullable=False)
@@ -67,11 +69,11 @@ class LinhaImportacaoPatologia(Base):
     __tablename__ = "linhas_importacao"
     __table_args__ = (
         UniqueConstraint("hash_origem", name="uq_linha_importacao_hash_origem"),
-        {"schema": SCHEMA_PATOLOGIA_V2},
+        {"schema": SCHEMA_PATOLOGIA},
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_importacao = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.importacoes.id"), nullable=False, index=True)
+    id_importacao = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.importacoes.id"), nullable=False, index=True)
     ordem_origem = Column(Integer, nullable=False)
     hash_origem = Column(String(64), nullable=False)
     codigo_solicitacao = Column(String(40), nullable=False)
@@ -88,11 +90,11 @@ class LinhaImportacaoPatologia(Base):
 
 class CasoPatologia(Base):
     __tablename__ = "casos"
-    __table_args__ = {"schema": SCHEMA_PATOLOGIA_V2}
+    __table_args__ = {"schema": SCHEMA_PATOLOGIA}
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     chave_origem = Column(String(255), nullable=False, unique=True)
-    id_paciente = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.pacientes.id"), nullable=False, index=True)
+    id_paciente = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.pacientes.id"), nullable=False, index=True)
     data_solicitacao = Column(Date, nullable=True, index=True)
     situacao_importacao = Column(String(30), nullable=False, default="PRONTO")
     pendencias = Column(JSON, nullable=False, default=list)
@@ -103,12 +105,22 @@ class ExamePatologia(Base):
     __tablename__ = "exames"
     __table_args__ = (
         UniqueConstraint("id_caso", "id_tipo_exame", name="uq_exame_caso_tipo"),
-        {"schema": SCHEMA_PATOLOGIA_V2},
+        # Fila da macroscopia: filtro por etapa + ordenação estável.
+        Index("ix_exames_fila_macro", "etapa_macroscopia", "criado_em", "id"),
+        Index(
+            "ix_exames_responsavel_macro",
+            "responsavel_macroscopia",
+            "etapa_macroscopia",
+            "criado_em",
+            postgresql_where=text("responsavel_macroscopia IS NOT NULL"),
+        ),
+        Index("ix_exames_criado_em", "criado_em", "id"),
+        {"schema": SCHEMA_PATOLOGIA},
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_caso = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.casos.id"), nullable=False, index=True)
-    id_tipo_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.tipos_exame.id"), nullable=False, index=True)
+    id_caso = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.casos.id"), nullable=False, index=True)
+    id_tipo_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.tipos_exame.id"), nullable=False, index=True)
     status = Column(String(40), nullable=False, default="AGUARDANDO_RECEBIMENTO")
     numero_local = Column(String(40), nullable=True, unique=True)
     sequencial = Column(Integer, nullable=True)
@@ -122,18 +134,35 @@ class ExamePatologia(Base):
     criado_por = Column(String(255), nullable=True)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())
 
+    # --- Posse na macroscopia -------------------------------------------
+    # Coluna dedicada em vez de derivar de ``status``: o status é escrito por
+    # vários caminhos do fluxo e uma escrita errada tiraria o exame da fila
+    # silenciosamente. Além disso ``CONCLUIDA`` precisa sobreviver ao avanço
+    # do exame para "Em Processamento".
+    etapa_macroscopia = Column(
+        String(20), nullable=False, server_default="AGUARDANDO", default="AGUARDANDO"
+    )
+    # Username do JWT de quem detém o exame. ``macroscopias.responsavel`` é
+    # outra coisa: quem finalizou a clivagem.
+    responsavel_macroscopia = Column(String(255), nullable=True)
+    # Nome de exibição desnormalizado: ``perfis_usuarios`` só é populada no
+    # login, então um JOIN devolveria NULL para quase todo mundo.
+    responsavel_macroscopia_nome = Column(String(255), nullable=True)
+    assumido_em = Column(DateTime, nullable=True)
+    macroscopia_concluida_em = Column(DateTime, nullable=True)
+
 
 class AmostraPatologia(Base):
     __tablename__ = "amostras"
     __table_args__ = (
         UniqueConstraint("id_caso", "numero_amostra", "id_linha_importacao", name="uq_amostra_caso_numero_origem"),
-        {"schema": SCHEMA_PATOLOGIA_V2},
+        {"schema": SCHEMA_PATOLOGIA},
     )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_caso = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.casos.id"), nullable=False, index=True)
-    id_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.exames.id"), nullable=False, index=True)
-    id_linha_importacao = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.linhas_importacao.id"), nullable=True, unique=True)
+    id_caso = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.casos.id"), nullable=False, index=True)
+    id_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.exames.id"), nullable=False, index=True)
+    id_linha_importacao = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.linhas_importacao.id"), nullable=True, unique=True)
     numero_amostra = Column(Integer, nullable=False)
     codigo_solicitacao = Column(String(40), nullable=False, index=True)
     descricao_material = Column(Text, nullable=True)
@@ -148,11 +177,11 @@ class AmostraPatologia(Base):
 
 class MovimentacaoPatologia(Base):
     __tablename__ = "movimentacoes"
-    __table_args__ = {"schema": SCHEMA_PATOLOGIA_V2}
+    __table_args__ = {"schema": SCHEMA_PATOLOGIA}
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.exames.id"), nullable=True)
-    id_amostra = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.amostras.id"), nullable=True)
+    id_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.exames.id"), nullable=True)
+    id_amostra = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.amostras.id"), nullable=True)
     etapa = Column(String(50), nullable=False)
     status_anterior = Column(String(50), nullable=True)
     status_novo = Column(String(50), nullable=False)
@@ -162,12 +191,23 @@ class MovimentacaoPatologia(Base):
 
 
 class MacroscopiaPatologia(Base):
+    """Uma clivagem por exame.
+
+    O exame é a peça; os frascos são apenas como o material chegou. A UNIQUE em
+    ``id_exame`` é a última defesa contra duplo submit da tela de clivagem.
+    """
+
     __tablename__ = "macroscopias"
-    __table_args__ = {"schema": SCHEMA_PATOLOGIA_V2}
+    __table_args__ = (
+        UniqueConstraint("id_exame", name="uq_macroscopia_exame"),
+        {"schema": SCHEMA_PATOLOGIA},
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_amostra = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.amostras.id"), nullable=False, unique=True)
+    id_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.exames.id"), nullable=False)
     descricao = Column(Text, nullable=False)
+    # Quem finalizou a clivagem. Não confundir com
+    # ``ExamePatologia.responsavel_macroscopia``, que é quem detém o exame.
     responsavel = Column(String(255), nullable=True)
     numero_cassetes = Column(Integer, nullable=False, default=0)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())
@@ -175,10 +215,10 @@ class MacroscopiaPatologia(Base):
 
 class ParteMacroscopiaPatologia(Base):
     __tablename__ = "partes_macroscopia"
-    __table_args__ = (UniqueConstraint("id_macroscopia", "ordinal", name="uq_v2_parte_macro_ordinal"), {"schema": SCHEMA_PATOLOGIA_V2})
+    __table_args__ = (UniqueConstraint("id_macroscopia", "ordinal", name="uq_parte_macro_ordinal"), {"schema": SCHEMA_PATOLOGIA})
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_macroscopia = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.macroscopias.id"), nullable=False)
+    id_macroscopia = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.macroscopias.id"), nullable=False)
     ordinal = Column(Integer, nullable=False)
     letra_identificacao = Column(String(10), nullable=False)
     descricao_estrutura = Column(Text, nullable=False)
@@ -187,7 +227,7 @@ class ParteMacroscopiaPatologia(Base):
 
 class LoteProcessamentoPatologia(Base):
     __tablename__ = "lotes_processamento"
-    __table_args__ = {"schema": SCHEMA_PATOLOGIA_V2}
+    __table_args__ = {"schema": SCHEMA_PATOLOGIA}
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     responsavel = Column(String(255), nullable=True)
@@ -199,12 +239,12 @@ class LoteProcessamentoPatologia(Base):
 
 class CassetePatologia(Base):
     __tablename__ = "cassetes"
-    __table_args__ = (UniqueConstraint("id_amostra", "identificador", name="uq_v2_cassete_amostra_identificador"), {"schema": SCHEMA_PATOLOGIA_V2})
+    __table_args__ = (UniqueConstraint("id_exame", "identificador", name="uq_cassete_exame_identificador"), {"schema": SCHEMA_PATOLOGIA})
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_amostra = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.amostras.id"), nullable=False)
-    id_parte_macroscopia = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.partes_macroscopia.id"), nullable=True)
-    id_lote_processamento = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.lotes_processamento.id"), nullable=True)
+    id_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.exames.id"), nullable=False, index=True)
+    id_parte_macroscopia = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.partes_macroscopia.id"), nullable=True)
+    id_lote_processamento = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.lotes_processamento.id"), nullable=True)
     identificador = Column(String(30), nullable=False)
     qr_code = Column(String(255), nullable=False, unique=True)
     coloracao_padrao = Column(String(30), nullable=False, default="HE")
@@ -214,11 +254,11 @@ class CassetePatologia(Base):
 
 class BlocoParafinaPatologia(Base):
     __tablename__ = "blocos_parafina"
-    __table_args__ = {"schema": SCHEMA_PATOLOGIA_V2}
+    __table_args__ = {"schema": SCHEMA_PATOLOGIA}
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_cassete = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.cassetes.id"), nullable=False)
-    id_lote_processamento = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.lotes_processamento.id"), nullable=False)
+    id_cassete = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.cassetes.id"), nullable=False)
+    id_lote_processamento = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.lotes_processamento.id"), nullable=False)
     codigo_bloco = Column(String(80), nullable=False, unique=True)
     qr_code = Column(String(255), nullable=False, unique=True)
     status = Column(String(40), nullable=False, default="Aguardando Corte")
@@ -227,10 +267,10 @@ class BlocoParafinaPatologia(Base):
 
 class LaminaPatologia(Base):
     __tablename__ = "laminas"
-    __table_args__ = (UniqueConstraint("id_bloco", "numero_lamina", name="uq_v2_lamina_bloco_numero"), {"schema": SCHEMA_PATOLOGIA_V2})
+    __table_args__ = (UniqueConstraint("id_bloco", "numero_lamina", name="uq_lamina_bloco_numero"), {"schema": SCHEMA_PATOLOGIA})
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    id_bloco = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA_V2}.blocos_parafina.id"), nullable=False)
+    id_bloco = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.blocos_parafina.id"), nullable=False)
     numero_lamina = Column(Integer, nullable=False)
     codigo_lamina = Column(String(80), nullable=False, unique=True)
     qr_code = Column(String(255), nullable=False, unique=True)

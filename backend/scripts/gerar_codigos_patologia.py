@@ -1,4 +1,4 @@
-"""Gera códigos locais para todos os exames do schema pathlab_v2.
+"""Gera códigos locais para todos os exames do schema pathlab.
 
 O sequencial é por tipo, ano e semestre da data de solicitação. Reexecutar o
 script não altera códigos já emitidos.
@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.models.patologia_v2 import CasoPatologia, ExamePatologia, TipoExamePatologia
+from src.models.patologia import CasoPatologia, ExamePatologia, TipoExamePatologia
 from src.resources.database import DatabaseManager
 
 

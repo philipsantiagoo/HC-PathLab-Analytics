@@ -1,4 +1,4 @@
-"""Cria uma cópia de dados do schema public antes do corte para pathlab_v2."""
+"""Cria uma cópia de dados do schema public antes do corte para o schema pathlab."""
 
 import asyncio
 import os

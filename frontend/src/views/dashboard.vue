@@ -37,28 +37,34 @@
 
     <Card>
       <template #header>
-        <h2 class="text-lg font-bold text-lab-text">Últimos exames movimentados</h2>
+        <h2 class="text-lg font-bold text-lab-text">Exames</h2>
         <p class="text-sm text-gray-500">
-          Chegada na etapa: quando o caso entrou na fase atual.
-          Início do trabalho: quando alguém efetivamente iniciou ação nessa fase.
+          Uma linha por exame — os frascos de um mesmo exame andam juntos.
+          Início do trabalho: quando alguém assumiu o exame na macroscopia.
           Tempo total: relógio desde a entrada no sistema (meta: 20 dias).
         </p>
       </template>
 
-      <p v-if="carregando" class="py-8 text-center text-sm text-gray-500">Carregando resumo e últimos exames…</p>
-      <DataTable v-else :headers="headers" :items="examesComSla">
+      <DataTable
+        :headers="headers"
+        :items="examesComSla"
+        server-side
+        :total="total"
+        :loading="carregando"
+        :page-size="POR_PAGINA"
+        v-model:page="pagina"
+      >
         <template #item-etapa="{ item }">
           <Badge :color="STATUS_COLOR[item.etapa]">{{ item.etapa }}</Badge>
         </template>
 
-        <template #item-tempoChegadaEtapa="{ item }">
-          <span class="text-gray-500">{{ item.tempoChegadaEtapaFormatado }}</span>
-        </template>
-
         <template #item-tempoInicioTrabalho="{ item }">
-          <span :class="item.atrasado ? 'text-red-600 font-medium' : 'text-gray-500'">
-            {{ item.tempoInicioTrabalhoFormatado }}
-          </span>
+          <div class="flex flex-col gap-0.5">
+            <span :class="item.atrasado ? 'text-red-600 font-medium' : 'text-gray-500'">
+              {{ item.tempoInicioTrabalhoFormatado }}
+            </span>
+            <span v-if="item.responsavel" class="text-[10px] text-gray-400">{{ item.responsavel }}</span>
+          </div>
         </template>
 
         <template #item-tempoTotal="{ item }">
@@ -89,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { ExclamationTriangleIcon, ClockIcon } from '@heroicons/vue/24/outline';
 import Card from '../components/card/card.vue';
 import DataTable from '../components/dataTable/dataTable.vue';
@@ -99,12 +105,18 @@ import { STATUS_COLOR, EXAM_STATUSES } from '../constants/statuses';
 import { diasDesde, getSlaStatus, formatTempoTotal, type SlaStatus } from '../utils/sla';
 import type { ExamCaseDetail } from '../types/exam';
 import { exameService, mapExameDetalhe } from '../services/exameService';
+import { parseDataApi } from '../utils/date';
 
+const POR_PAGINA = 10;
+
+// "Chegada na etapa" foi removida: nunca teve fonte no backend e renderizava
+// "—" em toda linha desde sempre. Recolocar exige uma coluna de carimbo por
+// etapa, que não existe hoje.
 const headers = [
   { text: 'Solicitação', value: 'solicitacao' },
   { text: 'Paciente', value: 'paciente' },
   { text: 'Etapa', value: 'etapa' },
-  { text: 'Chegada na etapa', value: 'tempoChegadaEtapa' },
+  { text: 'Frascos', value: 'frascos', align: 'center' as const },
   { text: 'Início do trabalho', value: 'tempoInicioTrabalho' },
   { text: 'Tempo total', value: 'tempoTotal' },
 ];
@@ -134,35 +146,58 @@ interface ExameDashboardItem {
   paciente: string;
   etapa: string;
   atrasado: boolean;
+  frascos: number;
   dataEntrada: Date;
-  // Quando o caso chegou nessa etapa específica (ex: saiu da Recepção e chegou na Macroscopia)
-  dataChegadaEtapa?: Date;
-  // Quando alguém efetivamente iniciou ação nessa etapa (assumiu, abriu o frasco etc.)
+  // Quando alguém assumiu o exame na macroscopia.
   dataInicioTrabalho?: Date;
+  responsavel?: string | null;
 }
 
 const exames = ref<ExameDashboardItem[]>([]);
 const resumo = ref<{ por_status: Record<string, number>; atrasados: number; alerta: number }>({ por_status: {}, atrasados: 0, alerta: 0 });
 const carregando = ref(true);
+const pagina = ref(1);
+const total = ref(0);
 
-onMounted(async () => {
+// Trocas rápidas de página produzem respostas fora de ordem.
+let controlador: AbortController | null = null;
+
+async function carregarPagina() {
+  controlador?.abort();
+  controlador = new AbortController();
+  carregando.value = true;
   try {
-  const [dados, dadosResumo] = await Promise.all([exameService.dashboard(), exameService.resumoDashboard()]);
-  resumo.value = dadosResumo;
-  exames.value = dados.map(e => ({
-    id: e.id,
-    solicitacao: e.solicitacao,
-    paciente: e.paciente,
-    etapa: e.etapa,
-    atrasado: e.atrasado,
-    dataEntrada: new Date(e.data_entrada),
-    dataChegadaEtapa: e.data_chegada_etapa ? new Date(e.data_chegada_etapa) : undefined,
-    dataInicioTrabalho: e.data_inicio_trabalho ? new Date(e.data_inicio_trabalho) : undefined,
-  }));
+    const dados = await exameService.dashboardPaginado({
+      pagina: pagina.value,
+      por_pagina: POR_PAGINA,
+      signal: controlador.signal,
+    });
+    total.value = dados.total;
+    exames.value = dados.itens.map(e => ({
+      id: e.id,
+      solicitacao: e.solicitacao,
+      paciente: e.paciente,
+      etapa: e.etapa,
+      atrasado: e.atrasado,
+      frascos: e.total_frascos,
+      dataEntrada: parseDataApi(e.data_entrada) ?? new Date(),
+      dataInicioTrabalho: parseDataApi(e.data_inicio_trabalho) ?? undefined,
+      responsavel: e.responsavel_macroscopia_nome,
+    }));
+  } catch (erro: any) {
+    if (erro?.code !== 'ERR_CANCELED') exames.value = [];
   } finally {
     carregando.value = false;
   }
+}
+
+onMounted(async () => {
+  // O resumo é agregado no banco e cobre a base inteira; só a lista pagina.
+  exameService.resumoDashboard().then(d => { resumo.value = d; }).catch(() => {});
+  await carregarPagina();
 });
+
+watch(pagina, carregarPagina);
 
 const examesComSla = computed(() => {
   return exames.value.map(exame => {
@@ -170,9 +205,6 @@ const examesComSla = computed(() => {
     const slaStatus = getSlaStatus(dias);
     return {
       ...exame,
-      tempoChegadaEtapaFormatado: exame.dataChegadaEtapa
-        ? formatTempoTotal(diasDesde(exame.dataChegadaEtapa))
-        : '—',
       tempoInicioTrabalhoFormatado: exame.dataInicioTrabalho
         ? formatTempoTotal(diasDesde(exame.dataInicioTrabalho))
         : '—',
@@ -182,10 +214,8 @@ const examesComSla = computed(() => {
   });
 });
 
-const examesEmAlerta = computed(() => examesComSla.value.filter(e => e.slaStatus !== 'ok'));
 const qtdAtrasados = computed(() => resumo.value.atrasados);
 const qtdNoAlerta = computed(() => resumo.value.alerta);
-const temAtrasado = computed(() => qtdAtrasados.value > 0);
 
 const statusCards = computed(() => {
   return EXAM_STATUSES.map(status => ({

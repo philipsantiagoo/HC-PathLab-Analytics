@@ -1,7 +1,7 @@
-"""Carrega um CSV homologado no schema pathlab_v2.
+"""Carrega um CSV homologado no schema pathlab.
 
 Uso:
-    python scripts/importar_patologia_v2.py caminho\\vw_solicitacao_atualizado.csv
+    python scripts/importar_patologia.py caminho\\vw_solicitacao_atualizado.csv
 """
 
 import asyncio
@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.resources.database import DatabaseManager
-from src.services.patologia_v2_importer import importar_csv_patologia_v2
+from src.services.patologia_importer import importar_csv_patologia
 
 
 async def main(caminho: str) -> None:
@@ -25,7 +25,7 @@ async def main(caminho: str) -> None:
     banco = DatabaseManager(dsn)
     try:
         async with banco.async_session_maker() as session:
-            lote = await importar_csv_patologia_v2(session, caminho)
+            lote = await importar_csv_patologia(session, caminho)
             print(
                 f"Importação {lote.status}: {lote.linhas_lidas} linhas; "
                 f"{lote.casos_prontos} casos prontos; {lote.casos_revisao} para revisão."

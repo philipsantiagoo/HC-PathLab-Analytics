@@ -6,15 +6,39 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, AsyncEngin
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
-# Base para os modelos do banco de dados da aplicação (SQLite)
+# Base para os modelos do banco de dados da aplicação
 Base = declarative_base()
+
+
+# O painel do Supabase entrega a connection string como ``postgresql://``, que o
+# SQLAlchemy resolve para psycopg2 — síncrono — e o engine assíncrono quebra no
+# startup com "The loaded 'psycopg2' is not async". Como toda colagem da URI do
+# painel reintroduz o problema, normalizamos aqui em vez de depender de alguém
+# lembrar de digitar o driver no .env.
+DRIVERS_ASSINCRONOS = {
+    "postgresql": "postgresql+asyncpg",
+    "postgres": "postgresql+asyncpg",
+    "sqlite": "sqlite+aiosqlite",
+}
+
+
+def normalizar_dsn(dsn: str) -> str:
+    """Garante um driver assíncrono na DSN, preservando-a se já houver um."""
+    if not dsn:
+        return dsn
+    esquema, separador, resto = dsn.partition("://")
+    if not separador or "+" in esquema:
+        return dsn  # driver já explícito (ex.: postgresql+asyncpg)
+    destino = DRIVERS_ASSINCRONOS.get(esquema.lower())
+    return f"{destino}://{resto}" if destino else dsn
+
 
 class DatabaseManager:
     """
     Manages asynchronous database connections and sessions for a specific DSN.
     """
     def __init__(self, dsn: str):
-        self.engine: AsyncEngine = create_async_engine(dsn, echo=False) # Set echo=False to reduce log verbosity
+        self.engine: AsyncEngine = create_async_engine(normalizar_dsn(dsn), echo=False) # Set echo=False to reduce log verbosity
         self.async_session_maker = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )

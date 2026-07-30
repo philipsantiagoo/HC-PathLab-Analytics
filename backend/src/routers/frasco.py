@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import fluxo_v2_controller as macroscopia_controller
-from ..controllers import fluxo_v2_controller as triagem_controller
+from ..controllers import fluxo_controller as macroscopia_controller
+from ..controllers import fluxo_controller as triagem_controller
 from ..resources.database import get_app_db_session
 from ..schemas.etiqueta import EtiquetaOut
 from ..schemas.frasco import FrascoDetalhe, FrascoOut
@@ -61,13 +61,17 @@ async def encaminhar_macroscopia(
     )
 
 
-@router.post("/{id_frasco}/iniciar-macroscopia", response_model=FrascoOut)
+@router.post("/{id_frasco}/iniciar-macroscopia", response_model=FrascoOut, deprecated=True)
 async def iniciar_macroscopia(
     id_frasco: str,
     request: Request,
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil(Perfil.MACROSCOPISTA)),
 ):
+    """Posse por frasco. Substituída por ``POST /api/macroscopia/exames/{id}/assumir``
+    — internamente resolve o exame e delega, para não haver duas regras de posse."""
+    display = current_user.get("displayName")
+    nome = display[0] if isinstance(display, list) and display else (display or current_user.get("username"))
     return await macroscopia_controller.iniciar_macroscopia(
-        session, id_frasco, current_user.get("username"), _ip(request)
+        session, id_frasco, current_user.get("username"), _ip(request), nome
     )

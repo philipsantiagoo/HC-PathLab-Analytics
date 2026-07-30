@@ -2,10 +2,16 @@ export const SLA_DIAS = 20;
 
 export type SlaStatus = 'ok' | 'alerta' | 'atrasado';
 
-/** Quantos dias inteiros se passaram desde a data informada até agora. */
+/**
+ * Quantos dias inteiros se passaram desde a data informada até agora.
+ *
+ * Nunca negativo: "dias desde que aconteceu" não faz sentido no futuro, e uma
+ * defasagem de segundos entre o relógio do servidor e o do navegador bastaria
+ * para o Math.floor devolver -1.
+ */
 export function diasDesde(data: Date): number {
   const ms = Date.now() - data.getTime();
-  return Math.floor(ms / (1000 * 60 * 60 * 24));
+  return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
 }
 
 /**

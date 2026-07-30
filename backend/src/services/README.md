@@ -4,87 +4,41 @@ Lógica de domínio que não pertence a um controller específico e é compartil
 
 ---
 
-## `maquina_estados.py` — Máquina de Estados
+## `patologia.py` — Regras de leitura e agrupamento do extrato
 
-Controla e audita todas as transições de status das entidades do sistema.
+Módulo puro (sem banco), por isso é o único com teste automatizado (`tests/test_patologia.py`).
 
-**Por que centralizar as transições?**
-Sem uma máquina de estados, qualquer controller poderia mudar o `status` de um frasco para qualquer valor, incluindo transições inválidas (ex: pular de `Na Recepção` direto para `Processamento Completo`). Centralizar aqui garante que:
-- Transições inválidas são rejeitadas com erro claro (409 Conflict)
-- Todo estado passa obrigatoriamente pelo registro no histórico
-- O código de auditoria não é duplicado por controller
+Uma linha do extrato **não é** um exame operacional: ela é uma amostra ligada a um conjunto de amostras do mesmo paciente. Este módulo mantém essa regra fora dos controllers e do formato físico do banco.
 
----
+- `ler_csv_patologia()` — lê e normaliza o CSV homologado
+- `agrupar_casos()` — agrupa linhas em casos por proximidade; marca `exige_revisao` quando o agrupamento é ambíguo
+- `tipo_por_codigo_lab()` — traduz o código do laboratório (139, 203, 205, 207, 209) para HP/IHQ/CCV/CG/CO
 
-### Estados por entidade
+## `patologia_importer.py` — Carga no schema `pathlab`
 
-**Exame** (status visível no dashboard):
-```
-Na Recepção → Em Macroscopia → Em Processamento → Em Microscopia → Liberado
-                                                 ↘ Em Congelamento
-                    Revisão Pendente ←──────────────────────────────────────┐
-                          └──────────────────────────────────────────────→ Liberado
-```
+Importador **idempotente**: rodar duas vezes o mesmo CSV não duplica nada. Consome `patologia.py` e grava Casos, Exames e Amostras, registrando o lote em `importacoes`/`linhas_importacao` para rastreabilidade.
 
-**Frasco** (status operacional interno):
-```
-Na Recepção → Aguardando Macroscopia → Em Macroscopia → Processamento Completo
-```
+Usado por `scripts/importar_patologia.py`, não pela API.
 
-**Cassete** (status operacional interno):
-```
-Aguardando Processamento → Em Processamento → Processamento Completo
-```
+## `catalogos.py` — Dados de referência
 
-**Bloco de Parafina:**
-```
-Aguardando Corte → Aguardando Microscopia
-```
+`garantir_catalogos_iniciais()` roda no startup (`main.py`) e assegura que os tipos de exame existam antes de qualquer recebimento.
+
+## `usuarios.py` — Identidade local
+
+`sincronizar_usuario_autenticado()` faz upsert em `perfis_usuarios` a cada login. Não guarda senha — a autenticação continua no AD.
+
+> A tabela só ganha linha quando a pessoa faz login pela primeira vez. Por isso o endpoint `/api/usuarios/candidatos` (destinatários de repasse) completa a lista com os usernames já vistos no fluxo; caso contrário nasceria vazia.
 
 ---
 
-### Funções
+## Transições de status
 
-**`transicionar(session, entidade, novo_status, *, etapa, usuario, ip, observacoes)`**
+Não existe mais um módulo de máquina de estados. As transições vivem no `controllers/fluxo_controller.py`, junto da operação que as provoca, e cada uma grava sua linha em `pathlab.movimentacoes` pelo helper `_mov()`.
 
-Ponto de entrada principal. Recebe qualquer entidade (Exame, Frasco, Cassete, BlocoParafina) e:
+A guarda que hoje importa de verdade é a de **posse do exame**:
 
-1. Verifica se a transição `status_atual → novo_status` é permitida para o tipo de entidade
-2. Rejeita com `409 Conflict` se a transição não existir no dicionário de transições válidas
-3. Atualiza o campo `status` da entidade
-4. Delega a criação do registro de histórico
+- `assumir_exame()` usa `UPDATE ... WHERE responsavel_macroscopia IS NULL` — atômico sob READ COMMITTED, sem `SELECT` antes.
+- `registrar_macroscopia()` exige que o exame esteja `EM_ANDAMENTO` e sob o usuário que chamou.
 
-**`registrar_historico(session, entidade, *, status_anterior, status_novo, etapa, usuario, ip, observacoes)`**
-
-Cria um registro em `HistoricoMovimentacao`. O tipo da entidade determina qual FK é preenchida (`id_exame`, `id_frasco` ou `id_cassete`).
-
-Retorna o objeto de histórico criado para que o controller possa incluí-lo na resposta se necessário.
-
----
-
-### Invariantes garantidos por esta camada
-
-- **Nenhum status é mudado sem registro no histórico.** As duas operações (mudar status + registrar) são executadas na mesma função, impossibilitando que um controller esqueça o histórico.
-- **Transições inválidas falham imediatamente.** O erro ocorre antes de qualquer operação no banco.
-- **O usuário responsável é sempre registrado.** O parâmetro `usuario` é obrigatório (vem do JWT decodificado).
-
----
-
-### Como usar nos controllers
-
-```python
-from ..services.maquina_estados import transicionar, StatusFrasco, Etapa
-
-await transicionar(
-    session,
-    frasco,
-    StatusFrasco.EM_MACROSCOPIA,
-    etapa=Etapa.MACROSCOPIA,
-    usuario=current_user["username"],
-    ip=ip_origem,
-)
-# A partir daqui frasco.status == "Em Macroscopia"
-# e um registro de histórico foi adicionado à sessão
-```
-
-O commit é feito pelo controller após todas as transições necessárias, mantendo a atomicidade da operação completa.
+O commit é sempre do controller, ao fim de todas as operações.

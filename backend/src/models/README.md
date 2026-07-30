@@ -46,7 +46,7 @@ Representa o pedido de exame anatomopatológico.
 - `sequencial`, `ano`, `semestre`: partes do número, armazenados separados para facilitar o cálculo do próximo sequencial
 - `tipo_exame`: HP, IHQ, HPDerm, CCV, CG, RevInt ou Congela
 - `numero_exame_aghu`: referência ao sistema legado (opcional)
-- `status`: gerenciado exclusivamente pela máquina de estados em `services/maquina_estados.py`
+- `status`: alterado apenas pelo `controllers/fluxo_controller.py`, que registra a transição em `movimentacoes`
 
 ---
 

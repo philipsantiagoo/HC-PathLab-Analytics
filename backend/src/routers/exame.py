@@ -4,10 +4,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import fluxo_v2_controller as exame_controller
-from ..controllers import fluxo_v2_controller as triagem_controller
+from ..controllers import fluxo_controller as exame_controller
+from ..controllers import fluxo_controller as triagem_controller
 from ..resources.database import get_app_db_session
 from ..schemas.exame import DashboardExameOut, ExameCreate, ExameOut
+from ..schemas.paginacao import POR_PAGINA_MAXIMO, POR_PAGINA_PADRAO, PaginaResposta
 from ..schemas.resultados import TriagemResult
 
 router = APIRouter(prefix="/api/exames", tags=["Exames / Triagem"])
@@ -31,13 +32,26 @@ async def registrar_recebimento(
     )
 
 
-@router.get("/dashboard", response_model=List[DashboardExameOut])
-async def listar_dashboard(
-    limite: int = Query(default=50, ge=1, le=200),
+@router.get("/dashboard/paginado", response_model=PaginaResposta[DashboardExameOut])
+async def listar_dashboard_paginado(
+    etapa: str | None = Query(default=None, max_length=40),
+    busca: str | None = Query(default=None, max_length=120),
+    pagina: int = Query(default=1, ge=1),
+    por_pagina: int = Query(default=POR_PAGINA_PADRAO, ge=1, le=POR_PAGINA_MAXIMO),
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil()),
 ):
-    """Dashboard: lista exames com nome do paciente e flag de SLA."""
+    """Dashboard por exame, paginado no servidor."""
+    return await exame_controller.listar_dashboard_paginado(session, etapa, busca, pagina, por_pagina)
+
+
+@router.get("/dashboard", response_model=List[DashboardExameOut], deprecated=True)
+async def listar_dashboard(
+    limite: int = Query(default=200, ge=1, le=1000),
+    session: AsyncSession = Depends(get_app_db_session),
+    current_user: dict = Depends(require_perfil()),
+):
+    """Lista não paginada. Substituída por ``GET /api/exames/dashboard/paginado``."""
     return await exame_controller.listar_dashboard(session, limite)
 
 
@@ -51,10 +65,11 @@ async def resumo_dashboard(
 
 @router.get("", response_model=List[ExameOut])
 async def listar_exames(
+    limite: int = Query(default=200, ge=1, le=1000),
     session: AsyncSession = Depends(get_app_db_session),
     current_user: dict = Depends(require_perfil()),
 ):
-    return await exame_controller.listar_exames(session)
+    return await exame_controller.listar_exames(session, limite)
 
 
 @router.get("/{id_exame}/detalhe")

@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
 
     # Create tables for App DB (if they don't exist) - for development only, Alembic handles this in production
     async with app.state.app_db.engine.begin() as conn:
-        # O schema ``pathlab_v2`` existe somente no PostgreSQL e é criado por
+        # O schema ``pathlab`` existe somente no PostgreSQL e é criado por
         # migrations. Limitar o create_all às tabelas sem schema mantém o
         # fallback SQLite de desenvolvimento funcional.
         tabelas_locais = [t for t in Base.metadata.sorted_tables if t.schema is None]
@@ -74,7 +74,7 @@ if os.path.isdir("src/static/dist"):
 
 # Placeholder para incluir os roteadores da API
 from .routers import paciente, auth, admin, aih, bpa, material
-from .routers import exame, frasco, macroscopia, historico, processamento, microscopia
+from .routers import exame, frasco, macroscopia, historico, processamento, microscopia, usuarios
 app.include_router(paciente.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
@@ -89,6 +89,7 @@ app.include_router(macroscopia.router)
 app.include_router(historico.router)
 app.include_router(processamento.router)
 app.include_router(microscopia.router)
+app.include_router(usuarios.router)
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):

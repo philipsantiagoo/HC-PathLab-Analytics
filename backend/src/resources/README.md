@@ -48,7 +48,7 @@ Dependency análoga à do App DB, mas aponta para o banco AGHU.
 | **Acesso** | Leitura e escrita | Somente leitura |
 | **ORM** | SQLAlchemy (models/) | SQL direto (providers/sql/) |
 | **Sessão** | `get_app_db_session` | `get_postgres_session` |
-| **DSN** | `SQLITE_DSN` | `POSTGRES_DSN` |
+| **DSN** | `APP_DATABASE_DSN` (fallback `SQLITE_DSN`) | `POSTGRES_DSN` |
 | **Obrigatório** | Sim | Não (app funciona sem ele) |
 
 ---
@@ -58,7 +58,7 @@ Dependency análoga à do App DB, mas aponta para o banco AGHU.
 Os dois bancos são inicializados no startup do FastAPI em `main.py`:
 
 ```python
-app.state.app_db = DatabaseManager(SQLITE_DSN)   # obrigatório
+app.state.app_db = DatabaseManager(APP_DATABASE_DSN)  # obrigatório
 app.state.aghu_db = DatabaseManager(POSTGRES_DSN) # opcional, pula se DSN ausente
 ```
 

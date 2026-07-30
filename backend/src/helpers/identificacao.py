@@ -91,7 +91,7 @@ async def gerar_numero_solicitacao(
     """
     # Fluxos legados ainda podem chamar esta função; os modelos antigos são
     # carregados somente aqui para não registrarem tabelas públicas no startup
-    # do fluxo v2.
+    # do fluxo operacional.
     from ..models.catalogo_aghu import TipoExame
     from ..models.contador_numeracao import ContadorNumeracaoExame
 

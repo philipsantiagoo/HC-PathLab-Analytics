@@ -25,7 +25,7 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from src.resources.database import Base
+from src.resources.database import Base, normalizar_dsn
 
 # Importa todos os modelos para que sejam registrados em Base.metadata e o
 # autogenerate consiga detectar as tabelas.
@@ -44,8 +44,9 @@ app_dsn = os.getenv("APP_DATABASE_DSN") or os.getenv("SQLITE_DSN")
 if not app_dsn:
     raise ValueError("APP_DATABASE_DSN or SQLITE_DSN not found in environment variables.")
 
-# Set the sqlalchemy.url in the config to the SQLite DSN
-config.set_main_option("sqlalchemy.url", app_dsn)
+# normalizar_dsn cobre a URI colada do painel do Supabase (``postgresql://``),
+# que sem driver explícito cairia no psycopg2 síncrono.
+config.set_main_option("sqlalchemy.url", normalizar_dsn(app_dsn))
 
 
 def run_migrations_offline() -> None:

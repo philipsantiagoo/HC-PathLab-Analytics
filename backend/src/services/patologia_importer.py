@@ -1,4 +1,4 @@
-"""Importador idempotente do CSV para o schema canônico ``pathlab_v2``."""
+"""Importador idempotente do CSV para o schema canônico ``pathlab``."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.patologia_v2 import (
+from ..models.patologia import (
     AmostraPatologia,
     CasoPatologia,
     ExamePatologia,
@@ -26,7 +26,7 @@ def _chave_paciente_serializada(chave: tuple[str, ...]) -> str:
     return hashlib.sha256("\x1f".join(chave).encode("utf-8")).hexdigest()
 
 
-async def importar_csv_patologia_v2(
+async def importar_csv_patologia(
     session: AsyncSession,
     caminho: str | Path,
 ) -> ImportacaoPatologia:
@@ -70,7 +70,7 @@ async def importar_csv_patologia_v2(
         for tipo in (await session.execute(select(TipoExamePatologia))).scalars().all()
     }
     if {linha.tipo_exame for linha in linhas} - set(tipos):
-        raise ValueError("O catálogo pathlab_v2 não contém todos os tipos de exame do CSV.")
+        raise ValueError("O catálogo pathlab não contém todos os tipos de exame do CSV.")
 
     pacientes: dict[str, PacientePatologia] = {
         paciente.chave_origem: paciente

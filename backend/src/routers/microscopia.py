@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import fluxo_v2_controller as microscopia_controller
+from ..controllers import fluxo_controller as microscopia_controller
 from ..resources.database import get_app_db_session
 
 router = APIRouter(prefix="/api/microscopia", tags=["Microscopia"])

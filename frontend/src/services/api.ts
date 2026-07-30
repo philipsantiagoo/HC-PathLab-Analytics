@@ -46,6 +46,12 @@ api.interceptors.response.use(
   async error => {
     if ((error.config as any)?.globalLoading) useUiStore().stopLoading();
 
+    // Requisição abortada pelo próprio app (troca rápida de aba/página): não é
+    // erro do usuário e não deve virar toast.
+    if (axios.isCancel(error) || error.code === 'ERR_CANCELED') {
+      return Promise.reject(error);
+    }
+
     const originalRequest = error.config;
     const authStore = useAuthStore();
     const toast = useToast();

@@ -1,113 +1,55 @@
 # Controllers — Lógica de Negócio
 
-Os controllers orquestram as operações de negócio. Eles ficam entre os routers (que recebem a requisição HTTP) e os repositories (que acessam o banco). Cada controller contém as regras de negócio da sua etapa do fluxo.
+Os controllers ficam entre os routers (que recebem a requisição HTTP) e o banco. Contêm as regras de negócio e são o único lugar que abre e fecha transação: o `commit` acontece aqui, nunca em camadas abaixo.
 
-Nenhum controller acessa o banco diretamente — isso é responsabilidade dos repositories em `providers/implementations/`.
+Todos operam sobre o schema `pathlab` (`src/models/patologia.py`).
 
 ---
 
 ## Arquivos
 
-### `triagem_controller.py` — Recepção de amostras
+### `fluxo_controller.py` — todo o fluxo operacional
 
-Gerencia a entrada de novas amostras no sistema.
+Um módulo único para Triagem → Macroscopia → Processamento → Microscopia. Os routers o importam com apelidos por área (`exame_controller`, `macroscopia_controller`, ...), mas é o mesmo módulo.
 
-**`registrar_recebimento()`**
-- Valida os dados do paciente (CPF ou CNS obrigatório)
-- Valida o tipo de exame (HP, IHQ, HPDerm, etc.)
-- Busca ou cria o paciente no cache local
-- Gera o número de solicitação (`HP-0001/26.1`) sequencial por tipo, ano e semestre
-- Cria o Exame e o Frasco associado, com QR code e código interno
-- Registra o histórico de movimentação para ambos
-- Devolve os dados do exame, frasco e payload de etiqueta (para impressão futura)
+**Recepção**
+- `registrar_recebimento()` — valida paciente (CPF ou CNS) e tipo de exame, cria Caso + Exame + Amostra, gera o número local (`HP-0001/26.1`) e devolve a etiqueta. O exame entra em `Aguardando Macroscopia`.
+- `listar_pendencias_recepcao()`, `encaminhar_para_macroscopia()`, `obter_etiqueta_frasco()`
 
-**`encaminhar_para_macroscopia()`**
-- Transiciona o Frasco de `Na Recepção` para `Aguardando Macroscopia`
-- O Exame permanece em `Na Recepção` até a macroscopia ser iniciada
+**Macroscopia — a unidade é o EXAME, não o frasco**
 
-**`obter_etiqueta_frasco()`**
-- Retorna os dados de etiqueta de um frasco para reimpressão
+Os frascos de um exame andam juntos: são apenas como o material chegou. A clivagem é uma só, do exame inteiro.
 
----
+- `listar_fila_macroscopia()` — página da fila + contadores das quatro abas (`meus`, `aguardando`, `em_andamento`, `todos`). Contagem de frascos por subquery escalar correlacionada; com `JOIN + GROUP BY` o `LIMIT` seria aplicado depois de agregar todas as amostras.
+- `obter_workspace_macroscopia()` — exame + frascos + posse + clivagem.
+- `assumir_exame()` — `UPDATE ... WHERE responsavel_macroscopia IS NULL` numa ida só. Sob READ COMMITTED o segundo concorrente reavalia o `WHERE` contra a versão nova e recebe 409. **Nunca** fazer `SELECT` → checar → `UPDATE`: essa é a corrida.
+- `repassar_exame()` — só o dono atual ou um admin. Grava o motivo em `movimentacoes`.
+- `liberar_exame()` — devolve à fila; saída para quando o dono fica indisponível.
+- `registrar_macroscopia()` — exige posse, cria **uma** macroscopia por exame (UNIQUE em `id_exame` protege contra duplo submit), gera as partes e cassetes e move **todas** as amostras do exame juntas.
 
-### `macroscopia_controller.py` — Etapa de macroscopia
+**Processamento e Microscopia**
+- `listar_pendencias_processamento()`, `iniciar_lote()`, `concluir_lote()`, `listar_blocos_pendentes()`, `buscar_bloco()`, `gerar_laminas()`, `listar_laminas()`
+- `listar_pendencias_microscopia()`, `registrar_laudo()`
 
-**`listar_pendencias()`**
-- Retorna a fila da estação: frascos em `Aguardando Macroscopia` ou `Em Macroscopia`
+**Consultas**
+- `listar_dashboard_paginado()` / `listar_dashboard()` (esta última mantida por compatibilidade), `resumo_dashboard()`, `listar_exames()`, `obter_exame()`, `obter_detalhe()`, `listar_historico()`, `listar_usuarios_candidatos()`
 
-**`buscar_frasco()`**
-- Busca manual por número de solicitação ou código interno
-- Substitui o leitor de QR code enquanto o hardware não está disponível
+### `paciente_controller.py`
 
-**`iniciar_macroscopia()`**
-- Transiciona Frasco → `Em Macroscopia`
-- Transiciona Exame → `Em Macroscopia` (em paralelo)
-
-**`registrar_macroscopia()`**
-- Valida que o frasco está em `Em Macroscopia`
-- Salva a descrição e o número de cassetes
-- Gera os cassetes (letras A, B, C...) com seus respectivos QR codes
-- Transiciona Frasco → `Processamento Completo`
-- Transiciona Exame → `Em Processamento`
-- Devolve os cassetes e payloads de etiqueta
+Delega ao provedor de dados (PostgreSQL/AGHU ou CSV). Sem lógica de negócio própria.
 
 ---
 
-### `processamento_controller.py` — Processamento técnico
+## Convenções
 
-**`listar_pendencias()`**
-- Fila de cassetes com status `Aguardando Processamento`
+**Paginação.** Toda listagem grande usa o envelope de `schemas/paginacao.py`. O `ORDER BY` precisa **sempre** de `, id` como desempate: os casos vieram de importação em lote e compartilham `criado_em`, então ordenar só por data não é determinístico e o `OFFSET` duplica e pula linhas entre páginas.
 
-**`iniciar_lote()`**
-- Agrupa N cassetes em um `LoteProcessamento`
-- Transiciona cada cassete para `Em Processamento`
+**Etapa da macroscopia.** `exames.etapa_macroscopia` (`AGUARDANDO` / `EM_ANDAMENTO` / `CONCLUIDA`) é a fonte da verdade da fila — não derive de `exames.status`, que é escrito por vários caminhos do fluxo.
 
-**`concluir_lote()`**
-- Marca o lote como concluído
-- Gera um `BlocoParafina` para cada cassete (código: `HP-0001/26.1-A`)
-- Se todos os cassetes do exame estiverem concluídos, avança o Exame para `Em Microscopia`
-
-**`gerar_laminas()`**
-- Gera N lâminas para um bloco (código: `HP-0001/26.1-A-L1`)
-- Avança o bloco para `Aguardando Microscopia`
-
-**`listar_blocos_pendentes()`** / **`buscar_bloco()`**
-- Fila de blocos aguardando corte microtômico e busca manual
-
----
-
-### `exame_controller.py` — Consultas de exames
-
-Consultas gerais sem lógica transacional.
-
-- **`listar_exames()`** — todos os exames, mais recentes primeiro
-- **`obter_exame()`** — um exame por ID (404 se não encontrado)
-- **`listar_dashboard()`** — exames com nome do paciente e flag de SLA (atrasado se ≥ 20 dias desde a recepção)
-
----
-
-### `historico_controller.py` — Rastreabilidade
-
-**`listar_historico()`**
-- Exige ao menos um filtro: `id_exame`, `id_frasco` ou `id_cassete`
-- Retorna todas as transições de status em ordem cronológica
-- Cada entrada registra: etapa, status anterior/novo, usuário responsável, IP e timestamp
-
----
-
-### `paciente_controller.py` — Consulta de pacientes
-
-Delega diretamente ao provedor de dados (PostgreSQL/AGHU ou CSV). Não contém lógica de negócio própria.
-
----
-
-## Padrão de uso nos routers
+**Assinatura.** `session` primeiro, depois os dados da operação, depois `usuario`/`ip` para auditoria.
 
 ```python
-# O router recebe a requisição, extrai os dados e delega ao controller
-@router.post("/")
+@router.post("")
 async def registrar(dados: ExameCreate, session: AsyncSession = Depends(...)):
     return await triagem_controller.registrar_recebimento(session, dados, usuario, ip)
 ```
-
-Os controllers sempre recebem a `session` do banco como primeiro argumento, seguida dos dados da operação e do `usuario`/`ip` para auditoria.

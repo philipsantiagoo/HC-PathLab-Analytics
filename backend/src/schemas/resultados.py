@@ -18,10 +18,15 @@ class TriagemResult(BaseModel):
 
 
 class MacroscopiaResult(BaseModel):
-    """Resposta do registro de macroscopia, com os cassetes gerados."""
+    """Resposta do registro de macroscopia, com os cassetes gerados.
+
+    ``frascos`` traz todas as amostras do exame — elas andam juntas. ``frasco``
+    (a primeira) permanece por compatibilidade com o cliente antigo.
+    """
 
     macroscopia: MacroscopiaOut
     frasco: FrascoOut
+    frascos: List[FrascoOut] = []
     partes: List[ParteMacroscopiaOut]
     cassetes: List[CasseteOut]
     etiquetas: List[EtiquetaOut]

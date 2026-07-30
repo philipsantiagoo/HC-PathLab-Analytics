@@ -1,4 +1,4 @@
-"""Normaliza a fila inicial v2 após a importação histórica.
+"""Normaliza a fila inicial após a importação histórica.
 
 O espelho legado já expunha esses itens na macroscopia.  Esta rotina preserva
 essa etapa no modelo novo e cria um identificador de amostra para leitura e
@@ -11,7 +11,7 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy import select
 
-from src.models.patologia_v2 import AmostraPatologia, ExamePatologia
+from src.models.patologia import AmostraPatologia, ExamePatologia
 from src.resources.database import DatabaseManager
 
 

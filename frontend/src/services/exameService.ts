@@ -2,6 +2,7 @@ import api from './api';
 import type { ExamCaseDetail, AghuData } from '../types/exam';
 import type { ExamType } from '../constants/examTypes';
 import { emCache, invalidarCache } from './requestCache';
+import { parseDataApi } from '../utils/date';
 
 export interface DashboardExame {
   id: string;
@@ -10,6 +11,85 @@ export interface DashboardExame {
   etapa: string;
   data_entrada: string;
   atrasado: boolean;
+  total_frascos: number;
+  data_inicio_trabalho?: string | null;
+  responsavel_macroscopia_nome?: string | null;
+}
+
+/** Envelope de paginação no servidor. */
+export interface Paginado<T> {
+  itens: T[];
+  pagina: number;
+  por_pagina: number;
+  total: number;
+  total_paginas: number;
+}
+
+export type FiltroFilaMacro = 'meus' | 'aguardando' | 'em_andamento' | 'todos';
+
+/** Uma linha da fila da macroscopia — sempre um exame, nunca um frasco. */
+export interface ExameFilaMacro {
+  id_exame: string;
+  numero_solicitacao: string;
+  tipo_exame?: string | null;
+  paciente_nome: string;
+  numero_exame_aghu?: string | null;
+  tipo_peca?: string | null;
+  total_frascos: number;
+  etapa_macroscopia: 'AGUARDANDO' | 'EM_ANDAMENTO' | 'CONCLUIDA';
+  responsavel_macroscopia?: string | null;
+  responsavel_macroscopia_nome?: string | null;
+  assumido_em?: string | null;
+  data_entrada?: string | null;
+  atrasado: boolean;
+}
+
+export interface ContadoresFilaMacro {
+  meus: number;
+  aguardando: number;
+  em_andamento: number;
+  todos: number;
+}
+
+export interface FilaMacroscopia extends Paginado<ExameFilaMacro> {
+  contadores: ContadoresFilaMacro;
+}
+
+export interface PosseExame {
+  responsavel?: string | null;
+  responsavel_nome?: string | null;
+  assumido_em?: string | null;
+  etapa_macroscopia: string;
+  sou_o_dono: boolean;
+  pode_liberar: boolean;
+}
+
+export interface ExameWorkspace {
+  exame: ExameFilaMacro;
+  posse: PosseExame;
+  frascos: FrascoOut[];
+  macroscopia: { id: string; id_exame: string; descricao: string; data_realizacao?: string | null; responsavel?: string | null; numero_cassetes: number } | null;
+  partes: { id: string; ordinal: number; letra_identificacao: string; descricao_estrutura: string; quantidade_fragmentos: number }[];
+  cassetes: CasseteOut[];
+}
+
+export interface FrascoOut {
+  id: string;
+  id_exame: string;
+  codigo_interno: string;
+  qr_code: string;
+  status: string;
+  descricao_macroscopia?: string | null;
+  numero_cassetes_gerados: number;
+  data_criacao?: string | null;
+}
+
+export interface UsuarioCandidato {
+  username: string;
+  nome_exibicao?: string | null;
+  email?: string | null;
+  departamento?: string | null;
+  origem: 'perfil' | 'historico';
 }
 
 export interface ExameCreate {
@@ -41,7 +121,7 @@ export interface FrascoDetalhe {
 
 export interface CasseteOut {
   id: string;
-  id_frasco: string;
+  id_exame: string;
   id_parte_macroscopia?: string | null;
   letra_fragmento: string;
   qr_code: string;
@@ -52,8 +132,9 @@ export interface CasseteOut {
 }
 
 export interface MacroscopiaResult {
-  macroscopia: { id: string; id_frasco: string; descricao: string; numero_cassetes: number };
+  macroscopia: { id: string; id_exame: string; descricao: string; numero_cassetes: number };
   frasco: { id: string; status: string };
+  frascos: FrascoOut[];
   partes: {
     id: string;
     id_macroscopia: string;
@@ -137,7 +218,7 @@ export function mapExameDetalhe(d: ExameDetalheApi): ExamCaseDetail {
     },
     recepcao: d.recepcao
       ? {
-          dataEntrada: new Date(d.recepcao.data_entrada),
+          dataEntrada: parseDataApi(d.recepcao.data_entrada) ?? new Date(),
           quantidadeFrascos: d.recepcao.quantidade_frascos,
           descricaoFisica: d.recepcao.descricao_fisica,
           frascosIds: d.recepcao.frascos_ids,
@@ -146,7 +227,7 @@ export function mapExameDetalhe(d: ExameDetalheApi): ExamCaseDetail {
       : undefined,
     macroscopia: d.macroscopia
       ? {
-          dataMacro: new Date(d.macroscopia.data_macro),
+          dataMacro: parseDataApi(d.macroscopia.data_macro) ?? new Date(),
           responsavel: d.macroscopia.responsavel,
           descricaoMacroscopica: d.macroscopia.descricao,
           sobraMaterial: d.macroscopia.sobra_material,
@@ -159,18 +240,18 @@ export function mapExameDetalhe(d: ExameDetalheApi): ExamCaseDetail {
             id: b.id,
             casseteId: b.cassete_id,
             responsavel: b.responsavel,
-            dataInclusao: new Date(b.data_inclusao),
+            dataInclusao: parseDataApi(b.data_inclusao) ?? new Date(),
           })),
           laminas: d.processamento.laminas.map(l => ({ id: l.id, blocoId: l.bloco_id, coloracao: l.coloracao })),
-          dataLiberacao: d.processamento.data_liberacao ? new Date(d.processamento.data_liberacao) : undefined,
+          dataLiberacao: parseDataApi(d.processamento.data_liberacao) ?? undefined,
           responsavelLiberacao: d.processamento.responsavel,
         }
       : undefined,
     microscopia: d.microscopia
       ? {
-          dataRecebimento: new Date(d.microscopia.data_recebimento),
+          dataRecebimento: parseDataApi(d.microscopia.data_recebimento) ?? new Date(),
           solicitouComplemento: false,
-          dataLiberacaoLaudo: d.microscopia.data_liberacao_laudo ? new Date(d.microscopia.data_liberacao_laudo) : undefined,
+          dataLiberacaoLaudo: parseDataApi(d.microscopia.data_liberacao_laudo) ?? undefined,
           responsavelLiberacao: d.microscopia.responsavel,
           laudo: d.microscopia.laudo ?? undefined,
         }
@@ -180,11 +261,13 @@ export function mapExameDetalhe(d: ExameDetalheApi): ExamCaseDetail {
 
 export const exameService = {
   // --- Dashboard ---
-  async dashboard(): Promise<DashboardExame[]> {
-    return emCache('dashboard:recentes', async () => {
-      const { data } = await api.get('/api/exames/dashboard', { params: { limite: 50 } });
-      return data;
-    });
+  // Paginado no servidor. Não passa por emCache de propósito: cachear lista
+  // paginada por uma chave só faria a página 2 servir as linhas da 1, e uma
+  // chave por página tornaria a invalidação impossível.
+  async dashboardPaginado(params: { pagina: number; por_pagina: number; etapa?: string; busca?: string; signal?: AbortSignal }): Promise<Paginado<DashboardExame>> {
+    const { signal, ...query } = params;
+    const { data } = await api.get('/api/exames/dashboard/paginado', { params: query, signal });
+    return data;
   },
   async resumoDashboard(): Promise<{ por_status: Record<string, number>; atrasados: number; alerta: number }> {
     return emCache('dashboard:resumo', async () => (await api.get('/api/exames/dashboard/resumo')).data);
@@ -225,15 +308,45 @@ export const exameService = {
     const { data } = await api.get('/api/frascos/buscar', { params });
     return data;
   },
-  async pendenciasMacroscopia(): Promise<FrascoDetalhe[]> {
-    return emCache('fila:macroscopia', async () => (await api.get('/api/macroscopia/pendencias', { params: { limite: 50 } })).data);
-  },
-  async iniciarMacroscopia(frascoId: string) {
-    const { data } = await api.post(`/api/frascos/${frascoId}/iniciar-macroscopia`, {});
+  // Fila por exame, paginada. Sem cache — ver o comentário em dashboardPaginado.
+  async filaMacroscopia(params: {
+    filtro: FiltroFilaMacro;
+    pagina: number;
+    por_pagina: number;
+    busca?: string;
+    signal?: AbortSignal;
+  }): Promise<FilaMacroscopia> {
+    const { signal, ...query } = params;
+    const { data } = await api.get('/api/macroscopia/fila', { params: query, signal });
     return data;
   },
+  async workspaceMacroscopia(idExame: string): Promise<ExameWorkspace> {
+    const { data } = await api.get(`/api/macroscopia/exames/${idExame}`);
+    return data;
+  },
+  async assumirExame(idExame: string): Promise<ExameFilaMacro> {
+    const { data } = await api.post(`/api/macroscopia/exames/${idExame}/assumir`, {});
+    invalidarCache('dashboard:resumo');
+    return data;
+  },
+  async repassarExame(idExame: string, dados: { para_username: string; para_nome?: string; motivo: string }): Promise<ExameFilaMacro> {
+    const { data } = await api.post(`/api/macroscopia/exames/${idExame}/repassar`, dados);
+    return data;
+  },
+  async liberarExame(idExame: string): Promise<ExameFilaMacro> {
+    const { data } = await api.post(`/api/macroscopia/exames/${idExame}/liberar`, {});
+    invalidarCache('dashboard:resumo');
+    return data;
+  },
+  async usuariosCandidatos(busca?: string): Promise<UsuarioCandidato[]> {
+    // A lista de pessoal muda pouco; TTL maior que o padrão.
+    return emCache(`usuarios:candidatos:${busca ?? ''}`, async () =>
+      (await api.get('/api/usuarios/candidatos', { params: busca ? { busca } : undefined })).data,
+      5 * 60_000,
+    );
+  },
   async registrarMacroscopia(dados: {
-    id_frasco: string;
+    id_exame: string;
     descricao: string;
     partes: {
       estrutura: string;
@@ -241,7 +354,7 @@ export const exameService = {
     }[];
   }): Promise<MacroscopiaResult> {
     const { data } = await api.post('/api/macroscopia', dados);
-    invalidarCache('fila:macroscopia', 'dashboard:recentes', 'dashboard:resumo');
+    invalidarCache('dashboard:resumo');
     return data;
   },
 

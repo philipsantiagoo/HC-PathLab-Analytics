@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.perfis import Perfil, require_perfil
-from ..controllers import fluxo_v2_controller as processamento_controller
+from ..controllers import fluxo_controller as processamento_controller
 from ..resources.database import get_app_db_session
 from ..schemas.bloco import BlocoOut, BlocoDetalhe, GerarLaminasRequest
 from ..schemas.lamina import LaminaOut, GerarLaminasResult
