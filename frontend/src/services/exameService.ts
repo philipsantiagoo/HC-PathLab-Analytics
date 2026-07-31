@@ -3,6 +3,8 @@ import type { ExamCaseDetail, AghuData } from '../types/exam';
 import type { ExamType } from '../constants/examTypes';
 import { emCache, invalidarCache } from './requestCache';
 import { parseDataApi } from '../utils/date';
+// Fila e posse são iguais nas quatro estações e vivem em etapaService.
+import type { WorkspaceBase } from './etapaService';
 
 export interface DashboardExame {
   id: string;
@@ -26,48 +28,8 @@ export interface Paginado<T> {
   total_paginas: number;
 }
 
-export type FiltroFilaMacro = 'meus' | 'aguardando' | 'em_andamento' | 'todos';
-
-/** Uma linha da fila da macroscopia — sempre um exame, nunca um frasco. */
-export interface ExameFilaMacro {
-  id_exame: string;
-  numero_solicitacao: string;
-  tipo_exame?: string | null;
-  paciente_nome: string;
-  numero_exame_aghu?: string | null;
-  tipo_peca?: string | null;
-  total_frascos: number;
-  etapa_macroscopia: 'AGUARDANDO' | 'EM_ANDAMENTO' | 'CONCLUIDA';
-  responsavel_macroscopia?: string | null;
-  responsavel_macroscopia_nome?: string | null;
-  assumido_em?: string | null;
-  data_entrada?: string | null;
-  atrasado: boolean;
-}
-
-export interface ContadoresFilaMacro {
-  meus: number;
-  aguardando: number;
-  em_andamento: number;
-  todos: number;
-}
-
-export interface FilaMacroscopia extends Paginado<ExameFilaMacro> {
-  contadores: ContadoresFilaMacro;
-}
-
-export interface PosseExame {
-  responsavel?: string | null;
-  responsavel_nome?: string | null;
-  assumido_em?: string | null;
-  etapa_macroscopia: string;
-  sou_o_dono: boolean;
-  pode_liberar: boolean;
-}
-
-export interface ExameWorkspace {
-  exame: ExameFilaMacro;
-  posse: PosseExame;
+/** Workspace da macroscopia: a base comum das etapas + o que é só daqui. */
+export interface ExameWorkspace extends WorkspaceBase {
   frascos: FrascoOut[];
   macroscopia: { id: string; id_exame: string; descricao: string; data_realizacao?: string | null; responsavel?: string | null; numero_cassetes: number } | null;
   partes: { id: string; ordinal: number; letra_identificacao: string; descricao_estrutura: string; quantidade_fragmentos: number }[];
@@ -83,14 +45,6 @@ export interface FrascoOut {
   descricao_macroscopia?: string | null;
   numero_cassetes_gerados: number;
   data_criacao?: string | null;
-}
-
-export interface UsuarioCandidato {
-  username: string;
-  nome_exibicao?: string | null;
-  email?: string | null;
-  departamento?: string | null;
-  origem: 'perfil' | 'historico';
 }
 
 export interface DashboardFilterParams {
@@ -281,22 +235,17 @@ export const exameService = {
     return data;
   },
 
-  async resumoDashboard(): Promise<{ por_status: Record<string, number>; atrasados: number; alerta: number }> {
+  async resumoDashboard(): Promise<{
+    por_status: Record<string, number>;
+    por_etapa: Record<string, number>;
+    atrasados: number;
+    alerta: number;
+  }> {
     return emCache('dashboard:resumo', async () => (await api.get('/api/exames/dashboard/resumo')).data);
   },
 
   async detalhe(id: string): Promise<ExameDetalheApi> {
     const { data } = await api.get(`/api/exames/${id}/detalhe`);
-    return data;
-  },
-
-  // --- Microscopia ---
-  async pendenciasMicroscopia(): Promise<MicroscopiaPendencia[]> {
-    const { data } = await api.get('/api/microscopia/pendencias');
-    return data;
-  },
-  async registrarLaudo(idExame: string, dados: { acao: 'liberar' | 'revisao' | 'complemento'; responsavel?: string; laudo?: string; observacoes?: string }) {
-    const { data } = await api.post(`/api/microscopia/${idExame}/laudo`, dados);
     return data;
   },
 
@@ -321,42 +270,9 @@ export const exameService = {
     const { data } = await api.get('/api/frascos/buscar', { params });
     return data;
   },
-  // Fila por exame, paginada. Sem cache — ver o comentário em dashboardPaginado.
-  async filaMacroscopia(params: {
-    filtro: FiltroFilaMacro;
-    pagina: number;
-    por_pagina: number;
-    busca?: string;
-    signal?: AbortSignal;
-  }): Promise<FilaMacroscopia> {
-    const { signal, ...query } = params;
-    const { data } = await api.get('/api/macroscopia/fila', { params: query, signal });
-    return data;
-  },
   async workspaceMacroscopia(idExame: string): Promise<ExameWorkspace> {
     const { data } = await api.get(`/api/macroscopia/exames/${idExame}`);
     return data;
-  },
-  async assumirExame(idExame: string): Promise<ExameFilaMacro> {
-    const { data } = await api.post(`/api/macroscopia/exames/${idExame}/assumir`, {});
-    invalidarCache('dashboard:resumo');
-    return data;
-  },
-  async repassarExame(idExame: string, dados: { para_username: string; para_nome?: string; motivo: string }): Promise<ExameFilaMacro> {
-    const { data } = await api.post(`/api/macroscopia/exames/${idExame}/repassar`, dados);
-    return data;
-  },
-  async liberarExame(idExame: string): Promise<ExameFilaMacro> {
-    const { data } = await api.post(`/api/macroscopia/exames/${idExame}/liberar`, {});
-    invalidarCache('dashboard:resumo');
-    return data;
-  },
-  async usuariosCandidatos(busca?: string): Promise<UsuarioCandidato[]> {
-    // A lista de pessoal muda pouco; TTL maior que o padrão.
-    return emCache(`usuarios:candidatos:${busca ?? ''}`, async () =>
-      (await api.get('/api/usuarios/candidatos', { params: busca ? { busca } : undefined })).data,
-      5 * 60_000,
-    );
   },
   async registrarMacroscopia(dados: {
     id_exame: string;
@@ -368,24 +284,6 @@ export const exameService = {
   }): Promise<MacroscopiaResult> {
     const { data } = await api.post('/api/macroscopia', dados);
     invalidarCache('dashboard:resumo');
-    return data;
-  },
-
-  // --- Processamento Técnico ---
-  async pendenciasProcessamento(): Promise<CasseteFila[]> {
-    const { data } = await api.get('/api/processamento/pendencias');
-    return data;
-  },
-  async iniciarLote(dados: { cassete_ids: string[]; observacoes?: string; responsavel?: string }): Promise<{ lote: { id: string }; total_cassetes: number }> {
-    const { data } = await api.post('/api/processamento/lote', dados);
-    return data;
-  },
-  async concluirLote(loteId: string, dados: { observacoes?: string }): Promise<{ lote: { id: string }; blocos_gerados: number; blocos: BlocoOut[] }> {
-    const { data } = await api.post(`/api/processamento/lote/${loteId}/concluir`, dados);
-    return data;
-  },
-  async gerarLaminas(blocoId: string, dados: { quantidade: number; coloracao: string }): Promise<{ bloco_id: string; codigo_bloco: string; laminas: unknown[]; etiquetas: unknown[] }> {
-    const { data } = await api.post(`/api/processamento/blocos/${blocoId}/laminas`, dados);
     return data;
   },
 };

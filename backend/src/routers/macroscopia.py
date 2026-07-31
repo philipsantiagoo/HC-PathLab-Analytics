@@ -7,8 +7,8 @@ from ..auth.perfis import Perfil, is_admin, require_perfil
 from ..controllers import fluxo_controller as macroscopia_controller
 from ..resources.database import get_app_db_session
 from ..schemas.frasco import FrascoDetalhe
+from ..schemas.etapas import LinhaFilaOut
 from ..schemas.macroscopia import (
-    ExameFilaMacroOut,
     ExameWorkspaceOut,
     FilaMacroscopiaOut,
     MacroscopiaCreate,
@@ -63,7 +63,7 @@ async def obter_workspace(
     )
 
 
-@router.post("/exames/{id_exame}/assumir", response_model=ExameFilaMacroOut)
+@router.post("/exames/{id_exame}/assumir", response_model=LinhaFilaOut)
 async def assumir(
     id_exame: str,
     session: AsyncSession = Depends(get_app_db_session),
@@ -75,7 +75,7 @@ async def assumir(
     )
 
 
-@router.post("/exames/{id_exame}/repassar", response_model=ExameFilaMacroOut)
+@router.post("/exames/{id_exame}/repassar", response_model=LinhaFilaOut)
 async def repassar(
     id_exame: str,
     dados: RepasseCreate,
@@ -88,7 +88,7 @@ async def repassar(
     )
 
 
-@router.post("/exames/{id_exame}/liberar", response_model=ExameFilaMacroOut)
+@router.post("/exames/{id_exame}/liberar", response_model=LinhaFilaOut)
 async def liberar(
     id_exame: str,
     session: AsyncSession = Depends(get_app_db_session),

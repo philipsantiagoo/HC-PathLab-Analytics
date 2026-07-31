@@ -50,6 +50,18 @@ def is_admin(current_user: dict) -> bool:
     return GRUPO_ADMIN in (current_user.get("groups", []) or [])
 
 
+def nome_de_exibicao(current_user: dict) -> str | None:
+    """Nome de exibição do token. O AD devolve ``displayName`` como lista.
+
+    É o que fica desnormalizado na posse da etapa: ``perfis_usuarios`` só ganha
+    linha no login, então um JOIN devolveria NULL para quase todo mundo.
+    """
+    display = current_user.get("displayName")
+    if isinstance(display, list):
+        return display[0] if display else None
+    return display or current_user.get("username")
+
+
 def perfis_do_usuario(current_user: dict) -> set[str]:
     grupos = current_user.get("groups", []) or []
     return {GRUPO_AD_PARA_PERFIL[g] for g in grupos if g in GRUPO_AD_PARA_PERFIL}

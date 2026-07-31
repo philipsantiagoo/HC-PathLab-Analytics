@@ -41,7 +41,13 @@ class DashboardExameOut(BaseModel):
     atrasado: bool          # SLA >= 20 dias (calculado pelo backend para facilitar)
     codigo_aghu: Optional[str] = None  # numero_exame_aghu, exibido e filtrável
     total_frascos: int = 1  # o dashboard é por exame; os frascos andam juntos
-    # Quando alguém assumiu o exame na macroscopia. É o "início do trabalho"
-    # que o dashboard tentava exibir lendo um campo que nunca existiu.
+    # Quando alguém assumiu o exame na etapa em que ele está agora. É o "início
+    # do trabalho" que o dashboard tentava exibir lendo um campo inexistente.
     data_inicio_trabalho: Optional[datetime] = None
+    # Nome mantido por compatibilidade com o frontend: hoje é o responsável da
+    # etapa atual, seja ela macroscopia, processamento, microscopia ou congelamento.
     responsavel_macroscopia_nome: Optional[str] = None
+    # MACROSCOPIA | PROCESSAMENTO | MICROSCOPIA | CONGELAMENTO — em que fila o
+    # exame está agora, e se lá ele aguarda ou já foi assumido.
+    etapa_ativa: Optional[str] = None
+    situacao_etapa: Optional[str] = None

@@ -9,6 +9,7 @@
         <p class="text-[10px] font-semibold text-gray-400 uppercase">Exame</p>
         <p class="font-mono font-bold text-lab-text mt-1">{{ codigoLocal }}</p>
         <p class="text-gray-600 mt-0.5">{{ nomePaciente }}</p>
+        <p class="text-[10px] text-gray-400 uppercase mt-2">{{ rotuloEtapa }}</p>
       </div>
 
       <div>
@@ -53,20 +54,34 @@
 import { ref, computed, watch } from 'vue';
 import Modal from '../modal/modal.vue';
 import Button from '../button/button.vue';
-import { exameService, type UsuarioCandidato } from '../../services/exameService';
+import { etapaService, type Etapa, type UsuarioCandidato } from '../../services/etapaService';
 import { useAuthStore } from '../../stores/auth';
 
+/**
+ * Repasse de posse, comum às quatro estações.
+ *
+ * A ``etapa`` decide para qual endpoint o repasse vai e também filtra os
+ * candidatos: o backend coloca no topo quem já atuou naquele setor.
+ */
 const props = defineProps<{
   show: boolean;
+  etapa: Etapa;
+  idExame: string;
   codigoLocal: string;
   nomePaciente: string;
-  idExame: string;
 }>();
 
 const emit = defineEmits<{
   close: [];
   repassado: [destinatario: string];
 }>();
+
+const ROTULO_ETAPA: Record<Etapa, string> = {
+  macroscopia: 'Macroscopia',
+  processamento: 'Processamento Técnico',
+  microscopia: 'Microscopia',
+  congelamento: 'Congelamento',
+};
 
 const authStore = useAuthStore();
 const destinatario = ref('');
@@ -75,6 +90,7 @@ const enviando = ref(false);
 const carregandoUsuarios = ref(false);
 const candidatos = ref<UsuarioCandidato[]>([]);
 
+const rotuloEtapa = computed(() => ROTULO_ETAPA[props.etapa]);
 // O motivo fica na trilha de auditoria (movimentações) — por isso obrigatório.
 const podeConfirmar = computed(() => !!destinatario.value && motivo.value.trim().length >= 3 && !enviando.value);
 
@@ -85,7 +101,7 @@ watch(() => props.show, async aberto => {
   motivo.value = '';
   carregandoUsuarios.value = true;
   try {
-    const lista = await exameService.usuariosCandidatos();
+    const lista = await etapaService.candidatos(props.etapa);
     // Não faz sentido repassar para si mesmo. A comparação é por username: o
     // nome de exibição não é chave e nunca casava para usuário de AD real.
     candidatos.value = lista.filter(u => u.username !== authStore.user?.username);
@@ -101,7 +117,7 @@ async function confirmar() {
   enviando.value = true;
   try {
     const escolhido = candidatos.value.find(u => u.username === destinatario.value);
-    await exameService.repassarExame(props.idExame, {
+    await etapaService.repassar(props.etapa, props.idExame, {
       para_username: destinatario.value,
       para_nome: escolhido?.nome_exibicao ?? undefined,
       motivo: motivo.value.trim(),

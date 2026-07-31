@@ -105,15 +105,6 @@ class ExamePatologia(Base):
     __tablename__ = "exames"
     __table_args__ = (
         UniqueConstraint("id_caso", "id_tipo_exame", name="uq_exame_caso_tipo"),
-        # Fila da macroscopia: filtro por etapa + ordenação estável.
-        Index("ix_exames_fila_macro", "etapa_macroscopia", "criado_em", "id"),
-        Index(
-            "ix_exames_responsavel_macro",
-            "responsavel_macroscopia",
-            "etapa_macroscopia",
-            "criado_em",
-            postgresql_where=text("responsavel_macroscopia IS NOT NULL"),
-        ),
         Index("ix_exames_criado_em", "criado_em", "id"),
         {"schema": SCHEMA_PATOLOGIA},
     )
@@ -134,22 +125,68 @@ class ExamePatologia(Base):
     criado_por = Column(String(255), nullable=True)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())
 
-    # --- Posse na macroscopia -------------------------------------------
-    # Coluna dedicada em vez de derivar de ``status``: o status é escrito por
-    # vários caminhos do fluxo e uma escrita errada tiraria o exame da fila
-    # silenciosamente. Além disso ``CONCLUIDA`` precisa sobreviver ao avanço
-    # do exame para "Em Processamento".
-    etapa_macroscopia = Column(
-        String(20), nullable=False, server_default="AGUARDANDO", default="AGUARDANDO"
+
+class EtapaExamePatologia(Base):
+    """Fila e posse de uma etapa do exame.
+
+    Macroscopia, Processamento, Microscopia e Congelamento têm exatamente a
+    mesma mecânica — fila, assumir, executar, concluir/repassar/devolver — e
+    antes disso existia só para a macroscopia, em colunas de ``exames``. Uma
+    linha por (exame, etapa, ciclo) generaliza o conceito e ainda dá suporte ao
+    retorno da microscopia para o processamento, que abre um novo ciclo em vez
+    de sobrescrever o progresso do anterior.
+
+    A posse fica sempre no exame inteiro, mesmo quando a etapa manipula
+    cassetes, blocos ou lâminas: são itens filhos do mesmo exame.
+    """
+
+    __tablename__ = "exame_etapas"
+    __table_args__ = (
+        UniqueConstraint("id_exame", "etapa", "ciclo", name="uq_etapa_exame_ciclo"),
+        # Fila: filtro por etapa + status com ordenação estável. O ", id" não é
+        # decorativo — os exames vieram de importação em lote e compartilham
+        # criado_em; sem desempate o OFFSET duplica e pula linhas entre páginas.
+        Index("ix_exame_etapas_fila", "etapa", "status", "criado_em", "id"),
+        Index(
+            "ix_exame_etapas_responsavel",
+            "responsavel_username",
+            "etapa",
+            "status",
+            postgresql_where=text("responsavel_username IS NOT NULL"),
+        ),
+        # Uma única etapa ativa por exame: é isto que garante "somente uma posse
+        # ativa por exame e etapa" no banco, e não apenas no código. O índice é
+        # parcial para os ciclos já concluídos não colidirem com o novo.
+        Index(
+            "uq_exame_etapas_ativa",
+            "id_exame",
+            "etapa",
+            unique=True,
+            postgresql_where=text("status <> 'CONCLUIDA'"),
+        ),
+        {"schema": SCHEMA_PATOLOGIA},
     )
-    # Username do JWT de quem detém o exame. ``macroscopias.responsavel`` é
-    # outra coisa: quem finalizou a clivagem.
-    responsavel_macroscopia = Column(String(255), nullable=True)
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.exames.id"), nullable=False, index=True)
+    # MACROSCOPIA | PROCESSAMENTO | MICROSCOPIA | CONGELAMENTO
+    etapa = Column(String(20), nullable=False)
+    # AGUARDANDO | EM_ANDAMENTO | CONCLUIDA — fonte da fila. O ``status`` do
+    # exame continua representando a posição geral dele no fluxo.
+    status = Column(String(20), nullable=False, server_default="AGUARDANDO", default="AGUARDANDO")
+    # Só a microscopia usa hoje: LAUDO_PREVIO (residente) / REVISAO (patologista).
+    subetapa = Column(String(30), nullable=True)
+    # Username do JWT de quem detém o exame nesta etapa.
+    responsavel_username = Column(String(255), nullable=True)
     # Nome de exibição desnormalizado: ``perfis_usuarios`` só é populada no
     # login, então um JOIN devolveria NULL para quase todo mundo.
-    responsavel_macroscopia_nome = Column(String(255), nullable=True)
+    responsavel_nome = Column(String(255), nullable=True)
     assumido_em = Column(DateTime, nullable=True)
-    macroscopia_concluida_em = Column(DateTime, nullable=True)
+    concluido_em = Column(DateTime, nullable=True)
+    # Cresce quando a etapa é reaberta (complemento/IHQ da microscopia).
+    ciclo = Column(Integer, nullable=False, server_default="1", default=1)
+    criado_em = Column(DateTime, nullable=False, server_default=func.now())
+    atualizado_em = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 
 class AmostraPatologia(Base):
@@ -276,4 +313,81 @@ class LaminaPatologia(Base):
     qr_code = Column(String(255), nullable=False, unique=True)
     coloracao = Column(String(30), nullable=False, default="HE")
     status = Column(String(40), nullable=False, default="Aguardando Leitura")
+    criado_em = Column(DateTime, nullable=False, server_default=func.now())
+
+
+class LaudoMicroscopiaPatologia(Base):
+    """Laudo prévio do residente e revisão do patologista.
+
+    Antes disso o texto do laudo só existia em ``movimentacoes.observacoes``,
+    então o patologista abria a tela sem enxergar o que o residente escreveu.
+    Uma linha por ciclo da microscopia; a UNIQUE evita duplicar no duplo submit.
+    """
+
+    __tablename__ = "laudos_microscopia"
+    __table_args__ = (
+        UniqueConstraint("id_exame", "ciclo", name="uq_laudo_micro_exame_ciclo"),
+        {"schema": SCHEMA_PATOLOGIA},
+    )
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.exames.id"), nullable=False, index=True)
+    ciclo = Column(Integer, nullable=False, server_default="1", default=1)
+    laudo_previo = Column(Text, nullable=True)
+    residente = Column(String(255), nullable=True)
+    laudo_previo_em = Column(DateTime, nullable=True)
+    conclusao = Column(Text, nullable=True)
+    patologista = Column(String(255), nullable=True)
+    liberado_em = Column(DateTime, nullable=True)
+    criado_em = Column(DateTime, nullable=False, server_default=func.now())
+    atualizado_em = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class CongelamentoPatologia(Base):
+    """Congelação (exame intraoperatório) de um exame do tipo ``CONG``.
+
+    A tela vivia inteira de mocks e de um contador no navegador. O número do HP
+    correlato é gerado no backend, dentro da mesma transação da liberação — um
+    contador local geraria códigos duplicados assim que houvesse dois postos.
+    """
+
+    __tablename__ = "congelamentos"
+    __table_args__ = (
+        UniqueConstraint("id_exame", name="uq_congelamento_exame"),
+        {"schema": SCHEMA_PATOLOGIA},
+    )
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_exame = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.exames.id"), nullable=False)
+    # EM_ANALISE | LIBERADO
+    status = Column(String(20), nullable=False, server_default="EM_ANALISE", default="EM_ANALISE")
+    resultado_final = Column(Text, nullable=True)
+    # HP gerado na liberação, para o material voltar à recepção já vinculado.
+    id_exame_hp = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.exames.id"), nullable=True)
+    numero_hp_correlato = Column(String(40), nullable=True)
+    liberado_em = Column(DateTime, nullable=True)
+    liberado_por = Column(String(255), nullable=True)
+    criado_em = Column(DateTime, nullable=False, server_default=func.now())
+
+
+class CicloCongelamentoPatologia(Base):
+    """Cada rodada de análise enquanto o cirurgião aguarda na sala."""
+
+    __tablename__ = "congelamento_ciclos"
+    __table_args__ = (
+        UniqueConstraint("id_congelamento", "ordinal", name="uq_ciclo_congelamento_ordinal"),
+        {"schema": SCHEMA_PATOLOGIA},
+    )
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_congelamento = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.congelamentos.id"), nullable=False, index=True)
+    ordinal = Column(Integer, nullable=False)
+    residente = Column(String(255), nullable=True)
+    patologista = Column(String(255), nullable=True)
+    quantidade_laminas = Column(Integer, nullable=False, default=1)
+    diagnostico = Column(Text, nullable=False)
+    # LIVRE | COMPROMETIDA | AGUARDANDO
+    conduta = Column(String(20), nullable=False)
+    observacao = Column(Text, nullable=True)
+    registrado_por = Column(String(255), nullable=True)
     criado_em = Column(DateTime, nullable=False, server_default=func.now())
