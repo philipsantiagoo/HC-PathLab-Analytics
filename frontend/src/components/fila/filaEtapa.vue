@@ -111,7 +111,7 @@ const props = withDefaults(defineProps<{
   porPagina: 10,
 });
 
-const emit = defineEmits<{ (e: 'abrir', idExame: string): void }>();
+const emit = defineEmits<{ (e: 'abrir', idExame: string, linha?: LinhaFila): void }>();
 
 const ABAS_PADRAO: Aba[] = [
   { value: 'meus', label: 'Meus exames', contador: 'meus' },
@@ -133,10 +133,12 @@ const colunas = computed(() => [
 
 const abaAtual = ref(definicaoAbas.value[0].value);
 const pagina = ref(1);
-const itens = ref<Record<string, unknown>[]>([]);
+type Row = Record<string, unknown> & { id: string };
+const itens = ref<Row[]>([]);
 const total = ref(0);
 const carregando = ref(false);
 const contadores = ref<ContadoresFila>({ meus: 0, aguardando: 0, em_andamento: 0, todos: 0 });
+const buscaInterna = ref(props.busca ?? '');
 
 const abas = computed(() => definicaoAbas.value.map(a => ({
   value: a.value,
@@ -148,7 +150,7 @@ const abas = computed(() => definicaoAbas.value.map(a => ({
 let controlador: AbortController | null = null;
 let jaAjustouAbaInicial = false;
 
-function mapear(linha: LinhaFila): Record<string, unknown> {
+function mapear(linha: LinhaFila): Row {
   const extras = Object.fromEntries(
     (props.colunasExtras ?? []).map(c => [c.value, c.valor(linha)]),
   );
@@ -178,7 +180,7 @@ async function carregar() {
       subetapa: aba.subetapa,
       pagina: pagina.value,
       por_pagina: props.porPagina,
-      busca: props.busca || undefined,
+      busca: buscaInterna.value || undefined,
       signal: controlador.signal,
     });
     itens.value = dados.itens.map(mapear);
@@ -204,16 +206,24 @@ async function carregar() {
   }
 }
 
-function abrir(item: { id?: unknown }) {
-  if (typeof item.id === 'string') emit('abrir', item.id);
+function abrir(item: { id?: unknown; bruto?: unknown }) {
+  if (typeof item.id === 'string') emit('abrir', item.id, item.bruto as LinhaFila | undefined);
 }
 
 watch(abaAtual, () => { pagina.value = 1; carregar(); });
 watch(pagina, () => carregar());
-watch(() => props.busca, () => { pagina.value = 1; carregar(); });
+watch(() => props.busca, valor => {
+  if (valor !== buscaInterna.value) {
+    buscaInterna.value = valor ?? '';
+    pagina.value = 1;
+    carregar();
+  }
+});
 
 onMounted(carregar);
-onUnmounted(() => controlador?.abort());
+onUnmounted(() => {
+  controlador?.abort();
+});
 
 defineExpose({ carregar });
 </script>

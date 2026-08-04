@@ -29,6 +29,15 @@
       </div>
     </Card>
 
+    <FilaEtapa
+      ref="fila"
+      etapa="congelamento"
+      titulo="Fila do Congelamento"
+      subtitulo="Exames intraoperatórios aguardando análise"
+      :colunas-extras="colunasExtrasFila"
+      @abrir="abrirExameFila"
+    />
+
     <!-- Não encontrado -->
     <Card v-if="buscou && !casoAtual">
       <div class="flex items-start gap-3 p-2">
@@ -45,6 +54,17 @@
 
     <!-- Caso encontrado -->
     <div v-else-if="buscou && casoAtual" class="space-y-6">
+
+      <PosseExameCard
+        v-if="workspace"
+        etapa="congelamento"
+        :id-exame="workspace.exame.id_exame"
+        :posse="workspace.posse"
+        :historico="workspace.historico_etapas"
+        descricao-escopo="o caso intraoperatório passa a andar com você"
+        @atualizado="workspace && carregarExame(workspace.exame.id_exame)"
+        @repassar="modalRepasseAberto = true"
+      />
 
       <!-- Aviso de correlação HP já existente -->
       <div v-if="casoAtual.correlacaoHp" class="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -310,6 +330,15 @@
       </Card>
 
     </div>
+    <RepassModal
+      :show="modalRepasseAberto"
+      etapa="congelamento"
+      :id-exame="workspace?.exame.id_exame ?? ''"
+      :codigo-local="workspace?.exame.numero_solicitacao ?? ''"
+      :nome-paciente="workspace?.exame.paciente_nome ?? ''"
+      @close="modalRepasseAberto = false"
+      @repassado="onRepassado"
+    />
   </div>
 </template>
 
@@ -325,13 +354,17 @@ import {
 import Card from '../components/card/card.vue';
 import Button from '../components/button/button.vue';
 import Badge from '../components/badge/badge.vue';
-import { useExamSequenceStore } from '../stores/examSequence';
+import FilaEtapa from '../components/fila/filaEtapa.vue';
+import PosseExameCard from '../components/fila/posseExameCard.vue';
+import RepassModal from '../components/repassModal/repassModal.vue';
+import { exameService, mapExameDetalhe } from '../services/exameService';
+import { congelamentoService, type CongelamentoWorkspace, type CondutaCongelamento } from '../services/congelamentoService';
+import type { LinhaFila } from '../services/etapaService';
 import { formatDateShort } from '../utils/date';
 import {
   RESIDENTES_CONGELAMENTO,
   PATOLOGISTAS_CONGELAMENTO,
 } from '../constants/staffMembers';
-import { formatExamCode } from '../utils/examCode';
 
 interface CicloCongelamento {
   data: Date;
@@ -358,42 +391,20 @@ interface CasoCongelamento {
   };
 }
 
-// Mock do AGHU — mesmo padrão das outras telas.
-const AGHU_CO_MOCK: Record<string, CasoCongelamento> = {
-  'CO-0001/26.1': {
-    codigoLocal: 'CO-0001/26.1',
-    ciclosCongelamento: [],
-    aghu: {
-      numeroSolicitacaoAghu: '443901',
-      nomePaciente: 'Francisca Maria de Souza',
-      prontuario: '309881',
-      origem: 'Internado',
-      clinica: 'Mastologia',
-      tipoMaterial: 'Quadrante supero-externo mama esquerda',
-      indicacaoClinica: 'Carcinoma ductal invasivo mama esquerda — avaliação de margens cirúrgicas durante quadrantectomia.',
-    },
-  },
-  'CO-0002/26.1': {
-    codigoLocal: 'CO-0002/26.1',
-    ciclosCongelamento: [],
-    aghu: {
-      numeroSolicitacaoAghu: '444502',
-      nomePaciente: 'Roberto Alves Pereira',
-      prontuario: '120044',
-      origem: 'Internado',
-      clinica: 'Cirurgia Geral',
-      tipoMaterial: 'Nódulo hepático — achado intraoperatório',
-      indicacaoClinica: 'Achado nodular em lobo direito durante colecistectomia laparoscópica.',
-    },
-  },
-};
-
 const toast = useToast();
-const sequenceStore = useExamSequenceStore();
 
 const codigoBusca = ref('');
 const buscou = ref(false);
 const casoAtual = ref<CasoCongelamento | null>(null);
+const exameIdReal = ref<string | null>(null);
+const workspace = ref<CongelamentoWorkspace | null>(null);
+const fila = ref<InstanceType<typeof FilaEtapa> | null>(null);
+const modalRepasseAberto = ref(false);
+
+const colunasExtrasFila = [
+  { text: 'Ciclos', value: 'ciclos', align: 'center' as const, valor: (l: LinhaFila) => l.total_ciclos ?? 0 },
+  { text: 'Resultado', value: 'resultado', valor: (l: LinhaFila) => l.situacao_resultado === 'LIBERADO' ? 'Liberado' : 'Em análise' },
+];
 
 const residente = ref('');
 const patologista = ref('');
@@ -406,6 +417,7 @@ const hpCorrelato = ref('');
 
 const podeRegistrar = computed(() => {
   return (
+    workspace.value?.pode_registrar === true &&
     residente.value !== '' &&
     patologista.value !== '' &&
     quantidadeLaminas.value >= 1 &&
@@ -414,7 +426,39 @@ const podeRegistrar = computed(() => {
   );
 });
 
-function buscar() {
+function aplicarWorkspace(ws: CongelamentoWorkspace, detalhe: ReturnType<typeof mapExameDetalhe>) {
+  workspace.value = ws;
+  casoAtual.value = {
+    codigoLocal: ws.exame.numero_solicitacao,
+    correlacaoHp: ws.congelamento?.numero_hp_correlato ?? undefined,
+    ciclosCongelamento: ws.ciclos.map(c => ({
+      data: c.criado_em ? new Date(c.criado_em) : new Date(),
+      residente: c.residente ?? '—',
+      patologista: c.patologista ?? '—',
+      quantidadeLaminas: c.quantidade_laminas,
+      resultado: c.diagnostico,
+      conduta: c.conduta.toLowerCase() as CicloCongelamento['conduta'],
+      observacao: c.observacao ?? undefined,
+    })),
+    aghu: {
+      numeroSolicitacaoAghu: detalhe.aghu.numeroSolicitacaoAghu,
+      nomePaciente: detalhe.aghu.nomePaciente,
+      prontuario: detalhe.aghu.prontuario,
+      origem: detalhe.aghu.origem as 'Internado' | 'Ambulatorial',
+      tipoMaterial: detalhe.aghu.tipoMaterial,
+      indicacaoClinica: detalhe.aghu.indicacaoClinica,
+    },
+  };
+  liberado.value = ws.congelamento?.status === 'LIBERADO';
+  hpCorrelato.value = ws.congelamento?.numero_hp_correlato ?? '';
+}
+
+async function abrirExameFila(idExame: string) {
+  codigoBusca.value = '';
+  await carregarExame(idExame);
+}
+
+async function carregarExame(idExame: string) {
   buscou.value = true;
   liberado.value = false;
   residente.value = '';
@@ -424,26 +468,52 @@ function buscar() {
   conduta.value = '';
   observacao.value = '';
   hpCorrelato.value = '';
-  casoAtual.value = AGHU_CO_MOCK[codigoBusca.value.trim()] ?? null;
+  exameIdReal.value = idExame;
+  try {
+    const [ws, detalhe] = await Promise.all([
+      congelamentoService.workspace(idExame),
+      exameService.detalhe(idExame),
+    ]);
+    aplicarWorkspace(ws, mapExameDetalhe(detalhe));
+  } catch {
+    casoAtual.value = null;
+    workspace.value = null;
+  }
 }
 
-function registrarCiclo() {
-  if (!podeRegistrar.value || !casoAtual.value) return;
+async function buscar() {
+  buscou.value = true;
+  try {
+    const alvo = await congelamentoService.buscar(codigoBusca.value.trim());
+    await carregarExame(alvo.id_exame);
+  } catch {
+    casoAtual.value = null;
+    workspace.value = null;
+  }
+}
 
-  casoAtual.value.ciclosCongelamento.push({
-    data: new Date(),
-    residente: residente.value,
-    patologista: patologista.value,
-    quantidadeLaminas: quantidadeLaminas.value,
-    resultado: diagnostico.value,
-    conduta: conduta.value as 'comprometida' | 'aguardando',
-    observacao: observacao.value || undefined,
-  });
+async function registrarCiclo() {
+  if (!podeRegistrar.value || !exameIdReal.value || !conduta.value) return;
 
-  if (conduta.value === 'comprometida') {
+  try {
+    const ws = await congelamentoService.registrarCiclo(exameIdReal.value, {
+      residente: residente.value,
+      patologista: patologista.value,
+      quantidade_laminas: quantidadeLaminas.value,
+      diagnostico: diagnostico.value,
+      conduta: conduta.value.toUpperCase() as CondutaCongelamento,
+      observacao: observacao.value || undefined,
+    });
+    const detalhe = await exameService.detalhe(exameIdReal.value);
+    aplicarWorkspace(ws, mapExameDetalhe(detalhe));
+    fila.value?.carregar();
+    if (conduta.value === 'comprometida') {
     toast.warning('Margem comprometida registrada. Aguardando novo fragmento do cirurgião.');
-  } else {
+    } else {
     toast.info('Registro salvo. Resultado ainda pendente de análise.');
+    }
+  } catch {
+    return;
   }
 
   // Limpa o formulário pro próximo ciclo, mantendo o caso aberto.
@@ -455,26 +525,34 @@ function registrarCiclo() {
   observacao.value = '';
 }
 
-function liberarResultado() {
-  if (!podeRegistrar.value || !casoAtual.value) return;
+async function liberarResultado() {
+  if (!podeRegistrar.value || !exameIdReal.value) return;
+  try {
+    const ws = await congelamentoService.registrarCiclo(exameIdReal.value, {
+      residente: residente.value,
+      patologista: patologista.value,
+      quantidade_laminas: quantidadeLaminas.value,
+      diagnostico: diagnostico.value,
+      conduta: 'LIVRE',
+      observacao: observacao.value || undefined,
+    });
+    const detalhe = await exameService.detalhe(exameIdReal.value);
+    aplicarWorkspace(ws, mapExameDetalhe(detalhe));
+    liberado.value = true;
+    fila.value?.carregar();
+    toast.success(`Resultado liberado — margem livre. Material deve retornar à Recepção como ${hpCorrelato.value}.`);
+  } catch {
+    return;
+  }
+}
 
-  // Registra o ciclo final (margem livre).
-  casoAtual.value.ciclosCongelamento.push({
-    data: new Date(),
-    residente: residente.value,
-    patologista: patologista.value,
-    quantidadeLaminas: quantidadeLaminas.value,
-    resultado: diagnostico.value,
-    conduta: 'livre',
-    observacao: observacao.value || undefined,
-  });
-
-  // Gera o código HP correlato (caso seguinte na esteira normal).
-  const caso = sequenceStore.nextSequencial();
-  hpCorrelato.value = formatExamCode('HP', caso.sequencial, caso.ano, caso.semestre);
-  casoAtual.value.correlacaoHp = hpCorrelato.value;
-
-  liberado.value = true;
-  toast.success(`Resultado liberado — margem livre. Material deve retornar à Recepção como ${hpCorrelato.value}.`);
+function onRepassado(destinatario: string) {
+  modalRepasseAberto.value = false;
+  toast.success(`Exame repassado para ${destinatario}.`);
+  buscou.value = false;
+  casoAtual.value = null;
+  workspace.value = null;
+  codigoBusca.value = '';
+  fila.value?.carregar();
 }
 </script>

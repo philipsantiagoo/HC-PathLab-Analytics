@@ -25,6 +25,15 @@
       </div>
     </Card>
 
+    <FilaEtapa
+      ref="fila"
+      etapa="processamento"
+      titulo="Fila do Processamento"
+      subtitulo="Exames aguardando inclusão, microtomia ou conclusão"
+      :colunas-extras="colunasExtrasFila"
+      @abrir="abrirExameFila"
+    />
+
     <Card v-if="buscou && !casoAtual">
       <div class="flex items-start gap-3 p-2">
         <ExclamationTriangleIcon class="h-6 w-6 shrink-0 text-amber-600" />
@@ -50,6 +59,16 @@
     </Card>
 
     <div v-else-if="buscou && casoAtual" class="space-y-6">
+      <PosseExameCard
+        v-if="workspace"
+        etapa="processamento"
+        :id-exame="workspace.exame.id_exame"
+        :posse="workspace.posse"
+        :historico="workspace.historico_etapas"
+        descricao-escopo="os cassetes do caso passam a andar com você"
+        @atualizado="workspace && buscarCassete()"
+        @repassar="modalRepasseAberto = true"
+      />
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Contexto da amostra: visão unificada + progresso dos cassetes -->
         <Card>
@@ -233,6 +252,16 @@
         </div>
       </Card>
     </div>
+
+    <RepassModal
+      :show="modalRepasseAberto"
+      etapa="processamento"
+      :id-exame="workspace?.exame.id_exame ?? ''"
+      :codigo-local="workspace?.exame.numero_solicitacao ?? ''"
+      :nome-paciente="workspace?.exame.paciente_nome ?? ''"
+      @close="modalRepasseAberto = false"
+      @repassado="onRepassado"
+    />
   </div>
 </template>
 
@@ -249,28 +278,38 @@ import Card from '../components/card/card.vue';
 import Button from '../components/button/button.vue';
 import Badge from '../components/badge/badge.vue';
 import QrcodeBatchPrint from '../components/qrcode/qrcodeBatchPrint.vue';
-import { useExamCasesStore } from '../stores/examCases';
-import { useAuthStore } from '../stores/auth';
-import { exameService } from '../services/exameService';
+import FilaEtapa from '../components/fila/filaEtapa.vue';
+import PosseExameCard from '../components/fila/posseExameCard.vue';
+import RepassModal from '../components/repassModal/repassModal.vue';
+import { exameService, mapExameDetalhe } from '../services/exameService';
+import { processamentoService, type ProcessamentoWorkspace } from '../services/processamentoService';
 import { RESPONSAVEIS_PROCESSAMENTO } from '../constants/staffMembers';
-import type { ExamCaseDetail, BlocoInfo, LaminaInfo } from '../types/exam';
+import type { ExamCaseDetail } from '../types/exam';
+import type { LinhaFila } from '../services/etapaService';
 import { formatDateShort } from '../utils/date';
 
 const COLORACAO_ROTINA = 'HE (Hematoxilina-Eosina) - Rotina';
 
 const toast = useToast();
-const examCasesStore = useExamCasesStore();
-const authStore = useAuthStore();
 
 const codigoCassete = ref('');
 const buscou = ref(false);
 const casoAtual = ref<ExamCaseDetail | null>(null);
+const workspace = ref<ProcessamentoWorkspace | null>(null);
+const fila = ref<InstanceType<typeof FilaEtapa> | null>(null);
+const modalRepasseAberto = ref(false);
 // Mapa letra_fragmento → UUID do cassete no backend (fila de processamento).
 const cassetesBackend = ref<Record<string, string>>({});
 
 const responsavelProcessamento = ref('');
 const dataProcessamento = ref(new Date().toISOString().slice(0, 10));
 const coloracoesSelecionadas = ref<string[]>([]);
+
+const colunasExtrasFila = [
+  { text: 'Cassetes', value: 'progresso', align: 'center' as const, valor: (l: LinhaFila) => `${l.cassetes_processados ?? 0} / ${l.total_cassetes ?? 0}` },
+  { text: 'Blocos', value: 'blocos', align: 'center' as const, valor: (l: LinhaFila) => l.total_blocos ?? 0 },
+  { text: 'Lâminas', value: 'laminas', align: 'center' as const, valor: (l: LinhaFila) => l.total_laminas ?? 0 },
+];
 
 const casseteAtivo = computed(() => {
   if (!casoAtual.value) return null;
@@ -288,7 +327,7 @@ const coloracaoesEspeciaisDisponiveis = computed(() => {
 });
 
 const cassetesProcessados = computed(() => {
-  return casoAtual.value?.processamentoTecnico?.blocos.map(b => b.casseteId) ?? [];
+  return workspace.value?.cassetes.filter(c => c.bloco).map(c => c.identificador) ?? [];
 });
 
 const todosProcessados = computed(() => {
@@ -298,7 +337,7 @@ const todosProcessados = computed(() => {
 });
 
 const podeRegistrarInclusao = computed(() => {
-  return responsavelProcessamento.value !== '' && dataProcessamento.value !== '';
+  return workspace.value?.posse.pode_executar === true && responsavelProcessamento.value !== '' && dataProcessamento.value !== '';
 });
 
 const etiquetasBlocos = computed(() => {
@@ -322,6 +361,11 @@ watch(casseteAtivo, () => {
   coloracoesSelecionadas.value = [...coloracaoesEspeciaisDisponiveis.value];
 });
 
+async function abrirExameFila(idExame: string, linha?: LinhaFila) {
+  codigoCassete.value = linha?.numero_solicitacao ?? idExame;
+  await buscarCassete();
+}
+
 async function buscarCassete() {
   buscou.value = true;
   casoAtual.value = null;
@@ -331,59 +375,22 @@ async function buscarCassete() {
   if (!code) return;
 
   try {
-    const pendencias = await exameService.pendenciasProcessamento();
-
-    // Aceita tanto o código do cassete ("HP-0004/26.1-A") quanto só o nº da
-    // solicitação ("HP-0004/26.1"). Casa contra a fila real em vez de "adivinhar"
-    // onde está o traço — o próprio nº de solicitação já contém "-".
-    let alvo = pendencias.find(c => `${c.numero_solicitacao}-${c.letra_fragmento}` === code) ?? null;
-    let numeroSol = alvo?.numero_solicitacao ?? null;
-    if (!numeroSol) {
-      const daFila = pendencias.filter(c => c.numero_solicitacao === code);
-      if (daFila.length) {
-        numeroSol = code;
-        alvo = daFila[0]; // ativa o 1º cassete pendente do caso
-      }
-    }
-    if (!numeroSol || !alvo) return; // nada pendente → template mostra "não encontrado"
-
-    const doCaso = pendencias.filter(c => c.numero_solicitacao === numeroSol);
-    // Mapa letra → UUID (necessário para iniciar o lote no backend).
-    cassetesBackend.value = Object.fromEntries(doCaso.map(c => [c.letra_fragmento, c.id]));
-
-    // Normaliza o campo para o código completo do cassete ativo (casseteAtivo depende disso).
-    codigoCassete.value = `${numeroSol}-${alvo.letra_fragmento}`;
-
-    // Contexto rico da mesma sessão (Macroscopia) ou fallback sintetizado do backend.
-    if (!examCasesStore.getCase(numeroSol)) {
-      examCasesStore.upsertCase(numeroSol, {
-        etapaAtual: 'Em Processamento',
-        urgente: false,
-        aghu: {
-          numeroSolicitacaoAghu: '—',
-          nomePaciente: alvo.paciente_nome ?? '—',
-          prontuario: '—',
-          idade: 0,
-          sexo: 'M',
-          origem: 'Internado',
-          tipoMaterial: '',
-          tipoExame: 'HP',
-          procedimentoSus: '—',
-          indicacaoClinica: '—',
-        },
-        macroscopia: {
-          dataMacro: new Date(),
-          responsavel: '—',
-          descricaoMacroscopica: '—',
-          sobraMaterial: false,
-          cassetes: doCaso.map(c => ({ id: c.letra_fragmento, estrutura: '—', coloracao: COLORACAO_ROTINA })),
-        },
-      });
-    }
-
-    casoAtual.value = examCasesStore.getCase(numeroSol);
+    const alvo = await processamentoService.buscarCassete(code);
+    const [ws, detalhe] = await Promise.all([
+      processamentoService.workspace(alvo.id_exame),
+      exameService.detalhe(alvo.id_exame),
+    ]);
+    workspace.value = ws;
+    const caso = mapExameDetalhe(detalhe);
+    casoAtual.value = caso;
+    cassetesBackend.value = Object.fromEntries(
+      ws.cassetes.filter(c => !c.bloco).map(c => [c.identificador, c.id]),
+    );
+    const cassete = ws.cassetes.find(c => c.id === alvo.id_cassete) ?? ws.cassetes.find(c => !c.bloco);
+    codigoCassete.value = `${alvo.numero_solicitacao}-${cassete?.identificador ?? ''}`;
   } catch {
     // O interceptor do axios já exibe o toast de erro.
+    workspace.value = null;
   }
 }
 
@@ -407,69 +414,58 @@ async function registrarInclusao() {
 
   try {
     // Backend: lote (1 cassete) → concluir (gera o bloco) → gerar lâminas.
-    const { lote } = await exameService.iniciarLote({
+    const { lote } = await processamentoService.iniciarLote({
       cassete_ids: [casseteUuid],
       observacoes: `Inclusão ${responsavelProcessamento.value}`,
     });
-    const { blocos } = await exameService.concluirLote(lote.id, { observacoes: 'OK' });
+    const { blocos } = await processamentoService.concluirLote(lote.id, { observacoes: 'OK' });
     const blocoBackend = blocos[0];
     if (blocoBackend) {
       // gerar_laminas só pode ser chamado 1x por bloco → gera o total de uma vez.
-      await exameService.gerarLaminas(blocoBackend.id, {
+      await processamentoService.gerarLaminas(blocoBackend.id, {
         quantidade: coloracoes.length,
         coloracao: coloracoes[0],
+        coloracoes,
       });
     }
 
     // Cassete já saiu da fila de pendências no backend.
     delete cassetesBackend.value[blocoId];
 
-    const novoBloco: BlocoInfo = {
-      id: blocoId,
-      casseteId: casseteAtivo.value.id,
-      responsavel: responsavelProcessamento.value,
-      dataInclusao: new Date(dataProcessamento.value),
-    };
-    const novasLaminas: LaminaInfo[] = coloracoes.map((coloracao, i) => ({
-      id: `${blocoId}-${String(i + 1).padStart(2, '0')}`,
-      blocoId,
-      coloracao,
-    }));
-
-    const atual = casoAtual.value.processamentoTecnico ?? { blocos: [], laminas: [] };
-    examCasesStore.upsertCase(casoAtual.value.codigoLocal, {
-      etapaAtual: 'Em Processamento',
-      processamentoTecnico: {
-        ...atual,
-        blocos: [...atual.blocos, novoBloco],
-        laminas: [...atual.laminas, ...novasLaminas],
-      },
-    });
-
-    casoAtual.value = examCasesStore.getCase(casoAtual.value.codigoLocal);
-    toast.success(`Cassete ${blocoId} incluído. ${novasLaminas.length} lâmina(s) geradas.`);
+    if (workspace.value) {
+      workspace.value = await processamentoService.workspace(workspace.value.exame.id_exame);
+      casoAtual.value = mapExameDetalhe(await exameService.detalhe(workspace.value.exame.id_exame));
+    }
+    toast.success(`Cassete ${blocoId} incluído. ${coloracoes.length} lâmina(s) geradas.`);
   } catch {
     // O interceptor do axios já exibe o toast de erro.
   }
 }
 
-function enviarParaMicroscopia() {
-  if (!casoAtual.value) return;
-
-  examCasesStore.upsertCase(casoAtual.value.codigoLocal, {
-    etapaAtual: 'Em Microscopia',
-    processamentoTecnico: {
-      ...casoAtual.value.processamentoTecnico!,
-      dataLiberacao: new Date(),
-      responsavelLiberacao: authStore.user?.givenName?.[0] || authStore.user?.username || 'Processamento Técnico',
-    },
-  });
+async function enviarParaMicroscopia() {
+  if (!casoAtual.value || !workspace.value) return;
+  try {
+    await processamentoService.concluirExame(workspace.value.exame.id_exame);
+  } catch {
+    return;
+  }
 
   toast.success(`Caso ${casoAtual.value.codigoLocal}: lâminas enviadas para a Microscopia, blocos encaminhados ao arquivo.`);
   codigoCassete.value = '';
   buscou.value = false;
   casoAtual.value = null;
+  workspace.value = null;
   responsavelProcessamento.value = '';
   coloracoesSelecionadas.value = [];
+  fila.value?.carregar();
+}
+
+function onRepassado(destinatario: string) {
+  modalRepasseAberto.value = false;
+  toast.success(`Exame repassado para ${destinatario}.`);
+  buscou.value = false;
+  casoAtual.value = null;
+  workspace.value = null;
+  fila.value?.carregar();
 }
 </script>

@@ -99,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useToast } from 'vue-toastification';
 import { ClockIcon, LockClosedIcon, CheckCircleIcon, UserIcon } from '@heroicons/vue/24/outline';
 import Card from '../card/card.vue';
@@ -141,7 +141,7 @@ const toast = useToast();
 // no backend, que devolve 409 para o segundo.
 const enviando = ref(false);
 
-const historico = props.historico ?? [];
+const historico = computed(() => props.historico ?? []);
 
 const ROTULO_ETAPA: Record<string, string> = {
   MACROSCOPIA: 'Macroscopia',
