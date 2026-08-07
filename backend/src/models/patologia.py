@@ -284,7 +284,7 @@ class CassetePatologia(Base):
     id_lote_processamento = Column(String, ForeignKey(f"{SCHEMA_PATOLOGIA}.lotes_processamento.id"), nullable=True)
     identificador = Column(String(30), nullable=False)
     qr_code = Column(String(255), nullable=False, unique=True)
-    coloracao_padrao = Column(String(30), nullable=False, default="HE")
+    coloracao_padrao = Column(String(100), nullable=False, default="HE")
     status = Column(String(40), nullable=False, default="Aguardando Processamento")
     criado_em = Column(DateTime, nullable=False, server_default=func.now())
 
@@ -311,7 +311,7 @@ class LaminaPatologia(Base):
     numero_lamina = Column(Integer, nullable=False)
     codigo_lamina = Column(String(80), nullable=False, unique=True)
     qr_code = Column(String(255), nullable=False, unique=True)
-    coloracao = Column(String(30), nullable=False, default="HE")
+    coloracao = Column(String(100), nullable=False, default="HE")
     status = Column(String(40), nullable=False, default="Aguardando Leitura")
     criado_em = Column(DateTime, nullable=False, server_default=func.now())
 

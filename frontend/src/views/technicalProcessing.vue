@@ -21,7 +21,7 @@
             @keyup.enter="buscarCassete"
           >
         </div>
-        <Button variant="primary" @click="buscarCassete">Buscar</Button>
+        <Button variant="primary" :loading="carregando" @click="buscarCassete">Buscar</Button>
       </div>
     </Card>
 
@@ -34,7 +34,9 @@
       @abrir="abrirExameFila"
     />
 
-    <Card v-if="buscou && !casoAtual">
+    <CarregandoExame v-if="carregando && !casoAtual" mensagem="Carregando cassetes do exame..." />
+
+    <Card v-else-if="buscou && !carregando && !casoAtual">
       <div class="flex items-start gap-3 p-2">
         <ExclamationTriangleIcon class="h-6 w-6 shrink-0 text-amber-600" />
         <div>
@@ -158,18 +160,9 @@
           </template>
 
           <div class="space-y-4">
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="form-label" for="responsavelProc">Técnico Responsável *</label>
-                <select id="responsavelProc" v-model="responsavelProcessamento" class="form-control">
-                  <option value="" disabled>Selecione...</option>
-                  <option v-for="nome in RESPONSAVEIS_PROCESSAMENTO" :key="nome" :value="nome">{{ nome }}</option>
-                </select>
-              </div>
-              <div>
-                <label class="form-label" for="dataProc">Data do Processamento *</label>
-                <input id="dataProc" v-model="dataProcessamento" type="date" class="form-control">
-              </div>
+            <div class="max-w-xs">
+              <label class="form-label" for="dataProc">Data do Processamento *</label>
+              <input id="dataProc" v-model="dataProcessamento" type="date" class="form-control">
             </div>
 
             <div class="border-t border-gray-100 pt-4">
@@ -280,10 +273,10 @@ import Badge from '../components/badge/badge.vue';
 import QrcodeBatchPrint from '../components/qrcode/qrcodeBatchPrint.vue';
 import FilaEtapa from '../components/fila/filaEtapa.vue';
 import PosseExameCard from '../components/fila/posseExameCard.vue';
+import CarregandoExame from '../components/fila/carregandoExame.vue';
 import RepassModal from '../components/repassModal/repassModal.vue';
 import { exameService, mapExameDetalhe } from '../services/exameService';
 import { processamentoService, type ProcessamentoWorkspace } from '../services/processamentoService';
-import { RESPONSAVEIS_PROCESSAMENTO } from '../constants/staffMembers';
 import type { ExamCaseDetail } from '../types/exam';
 import type { LinhaFila } from '../services/etapaService';
 import { formatDateShort } from '../utils/date';
@@ -294,6 +287,7 @@ const toast = useToast();
 
 const codigoCassete = ref('');
 const buscou = ref(false);
+const carregando = ref(false);
 const casoAtual = ref<ExamCaseDetail | null>(null);
 const workspace = ref<ProcessamentoWorkspace | null>(null);
 const fila = ref<InstanceType<typeof FilaEtapa> | null>(null);
@@ -301,7 +295,6 @@ const modalRepasseAberto = ref(false);
 // Mapa letra_fragmento → UUID do cassete no backend (fila de processamento).
 const cassetesBackend = ref<Record<string, string>>({});
 
-const responsavelProcessamento = ref('');
 const dataProcessamento = ref(new Date().toISOString().slice(0, 10));
 const coloracoesSelecionadas = ref<string[]>([]);
 
@@ -336,8 +329,11 @@ const todosProcessados = computed(() => {
   return total > 0 && cassetesProcessados.value.length === total;
 });
 
+// Não se escolhe responsável aqui: o responsável é quem assumiu a etapa, e
+// `pode_executar` já é exatamente isso — o backend assina o lote com a conta
+// autenticada.
 const podeRegistrarInclusao = computed(() => {
-  return workspace.value?.posse.pode_executar === true && responsavelProcessamento.value !== '' && dataProcessamento.value !== '';
+  return workspace.value?.posse.pode_executar === true && dataProcessamento.value !== '';
 });
 
 const etiquetasBlocos = computed(() => {
@@ -367,12 +363,15 @@ async function abrirExameFila(idExame: string, linha?: LinhaFila) {
 }
 
 async function buscarCassete() {
-  buscou.value = true;
-  casoAtual.value = null;
-  cassetesBackend.value = {};
-
   const code = codigoCassete.value.trim();
   if (!code) return;
+
+  // O caso anterior só sai da tela quando o novo chega (ou falha): limpá-lo
+  // aqui fazia o cartão de "não encontrado" piscar durante todo o carregamento,
+  // inclusive no recarregamento disparado ao assumir o exame.
+  buscou.value = true;
+  carregando.value = true;
+  cassetesBackend.value = {};
 
   try {
     const alvo = await processamentoService.buscarCassete(code);
@@ -390,7 +389,10 @@ async function buscarCassete() {
     codigoCassete.value = `${alvo.numero_solicitacao}-${cassete?.identificador ?? ''}`;
   } catch {
     // O interceptor do axios já exibe o toast de erro.
+    casoAtual.value = null;
     workspace.value = null;
+  } finally {
+    carregando.value = false;
   }
 }
 
@@ -414,10 +416,7 @@ async function registrarInclusao() {
 
   try {
     // Backend: lote (1 cassete) → concluir (gera o bloco) → gerar lâminas.
-    const { lote } = await processamentoService.iniciarLote({
-      cassete_ids: [casseteUuid],
-      observacoes: `Inclusão ${responsavelProcessamento.value}`,
-    });
+    const { lote } = await processamentoService.iniciarLote({ cassete_ids: [casseteUuid] });
     const { blocos } = await processamentoService.concluirLote(lote.id, { observacoes: 'OK' });
     const blocoBackend = blocos[0];
     if (blocoBackend) {
@@ -455,7 +454,6 @@ async function enviarParaMicroscopia() {
   buscou.value = false;
   casoAtual.value = null;
   workspace.value = null;
-  responsavelProcessamento.value = '';
   coloracoesSelecionadas.value = [];
   fila.value?.carregar();
 }

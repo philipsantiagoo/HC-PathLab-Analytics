@@ -25,7 +25,7 @@
             @keyup.enter="buscar"
           >
         </div>
-        <Button variant="primary" @click="buscar">Buscar</Button>
+        <Button variant="primary" :loading="carregando" @click="buscar">Buscar</Button>
       </div>
     </Card>
 
@@ -38,8 +38,10 @@
       @abrir="abrirExameFila"
     />
 
+    <CarregandoExame v-if="carregando && !casoAtual" mensagem="Carregando a solicitação..." />
+
     <!-- Não encontrado -->
-    <Card v-if="buscou && !casoAtual">
+    <Card v-else-if="buscou && !carregando && !casoAtual">
       <div class="flex items-start gap-3 p-2">
         <ExclamationTriangleIcon class="h-6 w-6 shrink-0 text-amber-600" />
         <div>
@@ -356,6 +358,7 @@ import Button from '../components/button/button.vue';
 import Badge from '../components/badge/badge.vue';
 import FilaEtapa from '../components/fila/filaEtapa.vue';
 import PosseExameCard from '../components/fila/posseExameCard.vue';
+import CarregandoExame from '../components/fila/carregandoExame.vue';
 import RepassModal from '../components/repassModal/repassModal.vue';
 import { exameService, mapExameDetalhe } from '../services/exameService';
 import { congelamentoService, type CongelamentoWorkspace, type CondutaCongelamento } from '../services/congelamentoService';
@@ -395,6 +398,7 @@ const toast = useToast();
 
 const codigoBusca = ref('');
 const buscou = ref(false);
+const carregando = ref(false);
 const casoAtual = ref<CasoCongelamento | null>(null);
 const exameIdReal = ref<string | null>(null);
 const workspace = ref<CongelamentoWorkspace | null>(null);
@@ -459,7 +463,10 @@ async function abrirExameFila(idExame: string) {
 }
 
 async function carregarExame(idExame: string) {
+  // O caso anterior fica na tela até o novo chegar (ou falhar) — o cartão de
+  // "não encontrada" só aparece depois que a carga termina.
   buscou.value = true;
+  carregando.value = true;
   liberado.value = false;
   residente.value = '';
   patologista.value = '';
@@ -478,17 +485,25 @@ async function carregarExame(idExame: string) {
   } catch {
     casoAtual.value = null;
     workspace.value = null;
+  } finally {
+    carregando.value = false;
   }
 }
 
 async function buscar() {
+  const codigo = codigoBusca.value.trim();
+  if (!codigo) return;
+
   buscou.value = true;
+  carregando.value = true;
   try {
-    const alvo = await congelamentoService.buscar(codigoBusca.value.trim());
+    const alvo = await congelamentoService.buscar(codigo);
     await carregarExame(alvo.id_exame);
   } catch {
     casoAtual.value = null;
     workspace.value = null;
+  } finally {
+    carregando.value = false;
   }
 }
 

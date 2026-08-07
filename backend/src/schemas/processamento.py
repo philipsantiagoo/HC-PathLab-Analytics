@@ -7,8 +7,10 @@ from .etapas import EtapaHistoricoOut, LinhaFilaOut, PosseOut
 
 
 class IniciarLoteRequest(BaseModel):
+    # Sem campo de responsável: quem responde pelo lote é quem assumiu a etapa,
+    # e é a conta autenticada que o controller registra. Aceitar um nome do
+    # cliente abria espaço para assinar o lote em nome de outra pessoa.
     cassete_ids: List[str] = Field(..., min_length=1, description="IDs dos cassetes a incluir no lote")
-    responsavel: Optional[str] = None
     observacoes: Optional[str] = None
 
 

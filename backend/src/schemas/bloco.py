@@ -1,16 +1,20 @@
-from typing import List, Optional
+from typing import Annotated, List, Optional
 from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
 
+# O limite de 100 acompanha a coluna laminas.coloracao; sem ele um rótulo longo
+# vira 500 no flush em vez de 422 na borda.
+Coloracao = Annotated[str, Field(min_length=1, max_length=100)]
+
 
 class GerarLaminasRequest(BaseModel):
     quantidade: int = Field(default=1, ge=1, le=20, description="Número de lâminas a gerar")
-    coloracao: str = Field(default="HE", description="Coloração padrão (HE, PAS, Giemsa...)")
+    coloracao: Coloracao = Field(default="HE", description="Coloração padrão (HE, PAS, Giemsa...)")
     # Uma coloração por lâmina. Antes o frontend pedia N lâminas e todas saíam
     # com a mesma coloração da primeira, então a especial pedida na macroscopia
     # sumia do registro.
-    coloracoes: Optional[List[str]] = Field(
+    coloracoes: Optional[List[Coloracao]] = Field(
         default=None, max_length=20,
         description="Coloração de cada lâmina, na ordem. Se omitido, usa 'coloracao' para todas.",
     )

@@ -239,7 +239,7 @@ async def iniciar_lote(session, dados, usuario, ip, eh_admin: bool = False):
     await _exigir_posse_dos_cassetes(session, cassetes, usuario, eh_admin)
 
     lote = LoteProcessamentoPatologia(
-        id=str(uuid.uuid4()), responsavel=usuario or dados.responsavel,
+        id=str(uuid.uuid4()), responsavel=usuario,
         status="Em Andamento", observacoes=dados.observacoes,
     )
     session.add(lote)

@@ -1,10 +1,12 @@
 # src/resources/database.py
 
 from typing import AsyncGenerator
+from uuid import uuid4
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, AsyncEngine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.pool import NullPool
 
 # Base para os modelos do banco de dados da aplicação
 Base = declarative_base()
@@ -33,12 +35,35 @@ def normalizar_dsn(dsn: str) -> str:
     return f"{destino}://{resto}" if destino else dsn
 
 
+def criar_engine(dsn: str) -> AsyncEngine:
+    """Cria um engine assíncrono compatível com PostgreSQL atrás do PgBouncer."""
+    dsn_normalizada = normalizar_dsn(dsn)
+    engine_options = {"echo": False}
+
+    # O pooler transacional do Supabase/PgBouncer pode entregar a mesma
+    # conexão do cliente para sessões PostgreSQL diferentes. O asyncpg e o
+    # cache de prepared statements do SQLAlchemy não são compatíveis com
+    # esse comportamento quando usam nomes numéricos reutilizáveis.
+    if dsn_normalizada.startswith("postgresql+asyncpg://"):
+        separador = "&" if "?" in dsn_normalizada else "?"
+        dsn_normalizada += f"{separador}prepared_statement_cache_size=0"
+        engine_options.update(
+            poolclass=NullPool,
+            connect_args={
+                "statement_cache_size": 0,
+                "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
+            },
+        )
+
+    return create_async_engine(dsn_normalizada, **engine_options)
+
+
 class DatabaseManager:
     """
     Manages asynchronous database connections and sessions for a specific DSN.
     """
     def __init__(self, dsn: str):
-        self.engine: AsyncEngine = create_async_engine(normalizar_dsn(dsn), echo=False) # Set echo=False to reduce log verbosity
+        self.engine = criar_engine(dsn)
         self.async_session_maker = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )

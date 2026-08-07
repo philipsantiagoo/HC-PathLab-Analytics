@@ -34,7 +34,7 @@ from ..services import etapas
 from ..services.fluxo_comum import (
     S_AGUARDANDO_MACRO, S_AGUARDANDO_PROCESSAMENTO, S_EM_MACRO, S_EM_PROCESSAMENTO,
     S_EM_CONGELAMENTO, S_PROCESSADO, S_RECEPCAO, TOTAL_FRASCOS, agora, atrasado,
-    proximo_numero_exame, registrar_movimentacao,
+    etapa_exibida, proximo_numero_exame, registrar_movimentacao, status_da_etapa,
 )
 
 
@@ -215,7 +215,7 @@ async def obter_detalhe(session: AsyncSession, id_exame: str):
     )).scalar_one_or_none()
 
     return {
-        "codigo_local": e.numero_local, "etapa_atual": e.status, "urgente": False,
+        "codigo_local": e.numero_local, "etapa_atual": etapa_exibida(e.status), "urgente": False,
         "aghu": {
             "nome_paciente": p.nome,
             "prontuario": p.prontuario or p.cns or p.cpf or "—",
@@ -307,7 +307,7 @@ def _linha_dashboard(exame, paciente_nome, total_frascos, ativa, referencia) -> 
         "solicitacao": exame.numero_local or "PENDENTE",
         "codigo_aghu": exame.numero_exame_aghu,
         "paciente": paciente_nome,
-        "etapa": exame.status,
+        "etapa": etapa_exibida(exame.status),
         "data_entrada": entrada,
         "atrasado": atrasado(entrada, referencia),
         "total_frascos": total_frascos or 0,
@@ -334,7 +334,9 @@ def _clausulas_dashboard(
     """
     clausulas = []
     if etapa:
-        clausulas.append(ExamePatologia.status == etapa)
+        # "Em Macroscopia" precisa alcançar quem ainda está "Aguardando
+        # Macroscopia" — é a mesma casa do fluxo.
+        clausulas.append(ExamePatologia.status.in_(status_da_etapa(etapa)))
     if codigo_aghu:
         clausulas.append(ExamePatologia.numero_exame_aghu.ilike(f"%{codigo_aghu.strip()}%"))
     if codigo_interno:
@@ -415,6 +417,11 @@ async def resumo_dashboard(session: AsyncSession) -> dict:
         select(ExamePatologia.status, func.count(ExamePatologia.id))
         .group_by(ExamePatologia.status)
     )).all()
+    # Soma "Aguardando X" dentro de "Em X": o card da etapa tem de bater com o
+    # que a tabela mostra quando se clica nele.
+    por_status: dict[str, int] = {}
+    for status, total in linhas:
+        por_status[etapa_exibida(status)] = por_status.get(etapa_exibida(status), 0) + total
     atrasados = (await session.execute(select(func.count(ExamePatologia.id)).where(entrada < referencia - timedelta(days=20)))).scalar_one()
     alerta = (await session.execute(select(func.count(ExamePatologia.id)).where(
         entrada >= referencia - timedelta(days=20), entrada < referencia - timedelta(days=15)
@@ -430,7 +437,7 @@ async def resumo_dashboard(session: AsyncSession) -> dict:
         )).all()
     }
     return {
-        "por_status": {status: total for status, total in linhas},
+        "por_status": por_status,
         "por_etapa": por_etapa,
         "atrasados": atrasados,
         "alerta": alerta,

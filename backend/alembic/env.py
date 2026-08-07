@@ -1,16 +1,11 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
 from alembic import context
 
 # Import load_dotenv to load environment variables
 from dotenv import load_dotenv
 import os
 import asyncio
-from sqlalchemy.ext.asyncio import AsyncEngine
-
 # Load environment variables
 load_dotenv()
 
@@ -25,7 +20,7 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-from src.resources.database import Base, normalizar_dsn
+from src.resources.database import Base, criar_engine, normalizar_dsn
 
 # Importa todos os modelos para que sejam registrados em Base.metadata e o
 # autogenerate consiga detectar as tabelas.
@@ -90,12 +85,7 @@ async def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = AsyncEngine(engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-        future=True,
-    ))
+    connectable = criar_engine(app_dsn)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

@@ -21,7 +21,7 @@
             @keyup.enter="buscarLamina"
           >
         </div>
-        <Button variant="primary" @click="buscarLamina">Buscar</Button>
+        <Button variant="primary" :loading="carregando" @click="buscarLamina">Buscar</Button>
       </div>
     </Card>
 
@@ -35,7 +35,9 @@
       @abrir="abrirExameFila"
     />
 
-    <Card v-if="buscou && !casoAtual">
+    <CarregandoExame v-if="carregando && !casoAtual" mensagem="Carregando lâminas do exame..." />
+
+    <Card v-else-if="buscou && !carregando && !casoAtual">
       <div class="flex items-start gap-3 p-2">
         <ExclamationTriangleIcon class="h-6 w-6 shrink-0 text-amber-600" />
         <div>
@@ -47,8 +49,10 @@
 
     <div v-else-if="buscou && casoAtual" class="space-y-6">
 
+      <!-- Encerrado o caso, some tudo que age sobre a etapa: ela não existe
+           mais, e cada botão remanescente seria um 409. -->
       <PosseExameCard
-        v-if="workspace"
+        v-if="workspace && !casoEncerrado"
         etapa="microscopia"
         :id-exame="workspace.exame.id_exame"
         :posse="workspace.posse"
@@ -60,7 +64,7 @@
       />
 
       <!-- Toggle de papel (só enquanto não temos AD/LDAP real) -->
-      <div class="flex items-center gap-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+      <div v-if="!casoEncerrado" class="flex items-center gap-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
         <p class="text-sm font-medium text-gray-600 shrink-0">Atuando como:</p>
         <div class="flex gap-2">
           <button
@@ -162,21 +166,13 @@
         </Card>
 
         <!-- Painel do Residente -->
-        <Card v-if="papel === 'residente'">
+        <Card v-if="papel === 'residente' && !casoEncerrado">
           <template #header>
             <h2 class="text-lg font-bold text-lab-text">Laudo Prévio</h2>
             <p class="text-sm text-gray-500">Elaborado pelo residente antes da revisão do patologista</p>
           </template>
 
           <div v-if="!laudoEnviado" class="space-y-4">
-            <div>
-              <label class="form-label" for="responsavelRes">Residente Responsável *</label>
-              <select id="responsavelRes" v-model="responsavelMicroscopia" class="form-control">
-                <option value="" disabled>Selecione...</option>
-                <option v-for="nome in RESPONSAVEIS_MICROSCOPIA" :key="nome" :value="nome">{{ nome }}</option>
-              </select>
-            </div>
-
             <div>
               <label class="form-label" for="laudoPrevio">Laudo Prévio / Impressões *</label>
               <textarea
@@ -228,21 +224,13 @@
         </Card>
 
         <!-- Painel do Patologista -->
-        <Card v-else-if="papel === 'patologista'">
+        <Card v-else-if="papel === 'patologista' && !casoEncerrado">
           <template #header>
             <h2 class="text-lg font-bold text-lab-text">Revisão e Diagnóstico Final</h2>
             <p class="text-sm text-gray-500">Análise do patologista responsável</p>
           </template>
 
           <div class="space-y-4">
-            <div>
-              <label class="form-label" for="responsavelPat">Patologista Responsável *</label>
-              <select id="responsavelPat" v-model="responsavelMicroscopia" class="form-control">
-                <option value="" disabled>Selecione...</option>
-                <option v-for="nome in RESPONSAVEIS_MICROSCOPIA" :key="nome" :value="nome">{{ nome }}</option>
-              </select>
-            </div>
-
             <!-- Laudo prévio do residente, se existir -->
             <div v-if="casoAtual.microscopia?.laudo" class="bg-amber-50 border border-amber-100 p-3 rounded-sm">
               <p class="text-[10px] font-bold text-amber-700 uppercase">Laudo prévio do residente</p>
@@ -312,7 +300,7 @@
             <div v-else class="flex flex-col gap-2 pt-2">
               <Button
                 variant="primary"
-                :disabled="!responsavelMicroscopia"
+                :disabled="!podeAgirComoPatologista"
                 class="w-full"
                 @click="aprovarLaudo"
               >
@@ -322,7 +310,7 @@
               <div class="grid grid-cols-2 gap-2">
                 <Button
                   variant="warning"
-                  :disabled="!responsavelMicroscopia"
+                  :disabled="!podeAgirComoPatologista"
                   class="w-full"
                   @click="acaoPatologista = 'ihq'"
                 >
@@ -330,7 +318,7 @@
                 </Button>
                 <Button
                   variant="default"
-                  :disabled="!responsavelMicroscopia"
+                  :disabled="!podeAgirComoPatologista"
                   class="w-full"
                   @click="acaoPatologista = 'revisao'"
                 >
@@ -344,13 +332,20 @@
 
       <!-- Card de caso encerrado -->
       <Card v-if="casoEncerrado" class="border-t-4 border-t-lab-success">
-        <div class="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
-          <CheckCircleIcon class="h-6 w-6 shrink-0 text-green-600" />
-          <div>
-            <p class="font-semibold text-green-700">Caso {{ casoAtual.codigoLocal }} liberado!</p>
-            <p class="text-sm text-green-600 mt-0.5">
-              Laudo deve ser registrado e liberado no AGHU. Este sistema marca o caso como concluído.
-            </p>
+        <div class="space-y-4">
+          <div class="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
+            <CheckCircleIcon class="h-6 w-6 shrink-0 text-green-600" />
+            <div>
+              <p class="font-semibold text-green-700">Caso {{ casoAtual.codigoLocal }} liberado!</p>
+              <p class="text-sm text-green-600 mt-0.5">
+                Laudo deve ser registrado e liberado no AGHU. Este sistema marca o caso como concluído.
+              </p>
+            </div>
+          </div>
+          <div class="flex justify-end">
+            <Button variant="primary" class="w-full md:w-auto md:min-w-[240px]" @click="voltarParaFila">
+              Voltar para a fila
+            </Button>
           </div>
         </div>
       </Card>
@@ -381,17 +376,18 @@ import Button from '../components/button/button.vue';
 import Badge from '../components/badge/badge.vue';
 import FilaEtapa from '../components/fila/filaEtapa.vue';
 import PosseExameCard from '../components/fila/posseExameCard.vue';
+import CarregandoExame from '../components/fila/carregandoExame.vue';
 import RepassModal from '../components/repassModal/repassModal.vue';
 import { exameService, mapExameDetalhe } from '../services/exameService';
 import { microscopiaService, type MicroscopiaWorkspace } from '../services/microscopiaService';
 import type { LinhaFila } from '../services/etapaService';
-import { RESPONSAVEIS_MICROSCOPIA } from '../constants/staffMembers';
 import type { ExamCaseDetail } from '../types/exam';
 
 const toast = useToast();
 
 const codigoLamina = ref('');
 const buscou = ref(false);
+const carregando = ref(false);
 const casoAtual = ref<ExamCaseDetail | null>(null);
 const workspace = ref<MicroscopiaWorkspace | null>(null);
 const fila = ref<InstanceType<typeof FilaEtapa> | null>(null);
@@ -400,7 +396,6 @@ const modalRepasseAberto = ref(false);
 const exameIdReal = ref<string | null>(null);
 const papel = ref<'residente' | 'patologista'>('residente');
 
-const responsavelMicroscopia = ref('');
 const laudoPrevio = ref('');
 const precisaComplementoPreLaudo = ref(false);
 const marcadoresPreLaudo = ref('');
@@ -432,8 +427,13 @@ const laminaAtiva = computed(() => {
   ) ?? null;
 });
 
+// Não há seleção de responsável: quem responde pela etapa é quem a assumiu, e
+// é a conta autenticada que o backend registra no laudo. `pode_executar` é a
+// única condição de quem pode agir.
+const podeAgirComoPatologista = computed(() => workspace.value?.posse.pode_executar === true);
+
 const podeEnviarLaudo = computed(() => {
-  if (!workspace.value?.posse.pode_executar || !responsavelMicroscopia.value) return false;
+  if (!workspace.value?.posse.pode_executar) return false;
   if (precisaComplementoPreLaudo.value) return marcadoresPreLaudo.value.trim().length > 0;
   return laudoPrevio.value.trim().length > 0;
 });
@@ -447,10 +447,10 @@ async function recarregarCaso() {
 
 async function abrirExameFila(idExame: string) {
   buscou.value = true;
+  carregando.value = true;
   laudoEnviado.value = false;
   casoEncerrado.value = false;
   acaoPatologista.value = null;
-  responsavelMicroscopia.value = '';
   exameIdReal.value = idExame;
   try {
     const ws = await microscopiaService.workspace(idExame);
@@ -459,20 +459,23 @@ async function abrirExameFila(idExame: string) {
     await recarregarCaso();
   } catch {
     casoAtual.value = null;
+  } finally {
+    carregando.value = false;
   }
 }
 
 async function buscarLamina() {
+  const code = codigoLamina.value.trim();
+  if (!code) return;
+
+  // O caso anterior só sai da tela quando o novo chega (ou falha): limpá-lo
+  // antes do await fazia "Lâmina não encontrada" aparecer durante a carga.
   buscou.value = true;
+  carregando.value = true;
   laudoEnviado.value = false;
   casoEncerrado.value = false;
   acaoPatologista.value = null;
-  responsavelMicroscopia.value = '';
-  casoAtual.value = null;
   exameIdReal.value = null;
-
-  const code = codigoLamina.value.trim();
-  if (!code) return;
 
   try {
     const alvo = await microscopiaService.buscar(code);
@@ -480,6 +483,9 @@ async function buscarLamina() {
     await recarregarCaso(); // carrega a cadeia completa do banco (detalhe agregado)
   } catch {
     // O interceptor do axios já exibe o toast de erro.
+    casoAtual.value = null;
+  } finally {
+    carregando.value = false;
   }
 }
 
@@ -495,16 +501,21 @@ async function enviarLaudoResidente() {
     } else {
       await microscopiaService.registrarLaudoPrevio(exameIdReal.value, laudoTxt);
     }
-    if (complemento) {
-      toast.warning(`Complemento solicitado (${marcadoresPreLaudo.value}). Caso voltou para Processamento Técnico.`);
-    } else {
-      toast.success('Laudo prévio encaminhado para revisão do patologista.');
-      await recarregarCaso();
-    }
-    laudoEnviado.value = true;
   } catch {
-    // interceptor exibe erro
+    return; // interceptor exibe erro
   }
+
+  // O envio já deu certo aqui. O feedback vem antes de qualquer recarregamento
+  // para que uma falha ao reler o exame não apague o sinal de sucesso.
+  laudoEnviado.value = true;
+  if (complemento) {
+    toast.warning(`Complemento solicitado (${marcadoresPreLaudo.value}). Caso voltou para Processamento Técnico.`);
+    // Saiu da microscopia: não há workspace para recarregar.
+    fila.value?.carregar();
+    return;
+  }
+  toast.success('Laudo prévio encaminhado para revisão do patologista.');
+  await recarregarCaso();
 }
 
 async function aprovarLaudo() {
@@ -516,12 +527,17 @@ async function aprovarLaudo() {
 
   try {
     await microscopiaService.liberarLaudo(exameIdReal.value, laudoFinal || undefined);
-    await recarregarCaso();
-    casoEncerrado.value = true;
-    toast.success(`Caso ${casoAtual.value?.codigoLocal} liberado. Registre e libere o laudo no AGHU.`);
   } catch {
-    // interceptor exibe erro
+    return; // interceptor exibe erro
   }
+
+  // Liberar é terminal: a etapa da microscopia é concluída e o exame sai da
+  // fila. Recarregar o workspace aqui devolvia 409 ("não está na etapa de
+  // microscopia") — verdade, mas a exceção pulava o toast e o card de
+  // encerramento, então o patologista via só o erro e nenhum sinal de sucesso.
+  casoEncerrado.value = true;
+  toast.success(`Caso ${casoAtual.value.codigoLocal} liberado. Registre e libere o laudo no AGHU.`);
+  fila.value?.carregar();
 }
 
 async function solicitarIhq() {
@@ -555,13 +571,25 @@ async function solicitarRevisao() {
   }
 }
 
+function voltarParaFila() {
+  buscou.value = false;
+  casoEncerrado.value = false;
+  laudoEnviado.value = false;
+  acaoPatologista.value = null;
+  obsPatologista.value = '';
+  laudoPrevio.value = '';
+  precisaComplementoPreLaudo.value = false;
+  marcadoresPreLaudo.value = '';
+  casoAtual.value = null;
+  workspace.value = null;
+  exameIdReal.value = null;
+  codigoLamina.value = '';
+  fila.value?.carregar();
+}
+
 function onRepassado(destinatario: string) {
   modalRepasseAberto.value = false;
   toast.success(`Exame repassado para ${destinatario}.`);
-  buscou.value = false;
-  casoAtual.value = null;
-  workspace.value = null;
-  codigoLamina.value = '';
-  fila.value?.carregar();
+  voltarParaFila();
 }
 </script>

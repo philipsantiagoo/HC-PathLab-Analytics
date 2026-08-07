@@ -32,7 +32,35 @@ S_AGUARDANDO_CORTE = "Aguardando Corte"
 S_AGUARDANDO_MICRO = "Aguardando Microscopia"
 S_CORTADO = "Cortado"
 
+# --- Etapa exibida (agrupa "Aguardando X" com "Em X") --------------------
+# Quem aguarda a macroscopia já ESTÁ na macroscopia — parado na fila dela. A
+# diferença entre aguardar e estar assumido é da etapa (``exame_etapas.status``,
+# que a fila mostra), não da posição no fluxo; o dashboard conta posição.
+#
+# Sem esse agrupamento o card "Em Macroscopia" marcava zero com a fila cheia:
+# os exames caíam num rótulo que a tela nem lista, some do card, some do filtro
+# e a Badge da linha ficava sem cor.
+ETAPA_EXIBIDA = {
+    S_AGUARDANDO_MACRO: S_EM_MACRO,
+    S_AGUARDANDO_PROCESSAMENTO: S_EM_PROCESSAMENTO,
+    S_AGUARDANDO_MICRO: S_EM_MICRO,
+}
+
 SLA_DIAS = 20
+
+
+def etapa_exibida(status: Optional[str]) -> Optional[str]:
+    """Status do exame → etapa mostrada no dashboard."""
+    return ETAPA_EXIBIDA.get(status, status)
+
+
+def status_da_etapa(etapa: str) -> list[str]:
+    """Inverso de ``etapa_exibida``: todo status que aparece sob essa etapa.
+
+    É o que o filtro precisa — pedir "Em Macroscopia" tem de trazer também
+    quem está como "Aguardando Macroscopia".
+    """
+    return [etapa, *(s for s, destino in ETAPA_EXIBIDA.items() if destino == etapa)]
 
 
 def agora() -> datetime:
